@@ -1,0 +1,28 @@
+#!/bin/sh
+# SPDX-License-Identifier: zlib-acknowledgement
+set -e
+
+mkdir -p build
+
+# NOTE(Ryan): -fsanitize=thread, -fsanitize=address 
+ignored_warning_flags="-Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable
+  -Wno-unused-parameter -Wno-missing-field-initializers -Wno-write-strings
+  -Wno-unused-result"
+
+dev_type_flags="-O0 -g -ggdb3 -DRAY_SLOW -DRAY_INTERNAL"
+
+# TODO(Ryan): Are we fine with breaking IEEE floating point (losing precision) for speed?
+common_flags="$ignored_warnings -Icode -fno-exceptions -fno-rtti -std=c++2a -Werror -Wall -Wextra -pedantic 
+  -Warray-bounds=2 -march=native -ffast-math -ffunction-sections -fdata-sections -Wl,--gc-sections"
+
+libraries=""
+
+ctime -begin misc/ray.ctm
+
+g++ $common_compiler_flags $dev_type_flags \
+  code/ray.cpp -o build/ray \
+  $libraries
+
+ctime -end misc/ray.ctm
+
+./build/ray
