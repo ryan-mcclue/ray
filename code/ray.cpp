@@ -52,7 +52,94 @@ typedef double       r64;
   #define ASSERT(cond)
 #endif
 
-union v3
+#include <math.h>
+
+union V2
+{
+  struct
+  {
+    r32 x, y;
+  };
+  r32 e[2];
+};
+
+INTERNAL V2
+operator*(r32 s, V2 vec)
+{
+  V2 result = {};
+
+  result.x = vec.x * s;
+  result.y = vec.y * s;
+  
+  return result;
+}
+
+INTERNAL V2
+operator*(V2 vec, r32 s)
+{
+  V2 result = s * vec;
+  
+  return result;
+}
+
+INTERNAL V2 &
+operator*=(V2 &vec, r32 s)
+{
+  vec = s * vec;
+
+  return vec;
+}
+
+INTERNAL V2
+operator+(V2 vec1, V2 vec2)
+{
+  V2 result = {};
+
+  result.x = vec1.x + vec2.x;
+  result.y = vec1.y + vec2.y;
+
+  return result;
+}
+
+INTERNAL V2 &
+operator+=(V2 &vec1, V2 vec2)
+{
+  vec1 = vec1 + vec2;
+
+  return vec1;
+}
+
+INTERNAL r32
+vec_dot(V2 vec1, V2 vec2)
+{
+  r32 result = 0.0f;
+
+  result = (vec1.x * vec2.x) + (vec1.y * vec2.y);
+
+  return result;
+}
+
+INTERNAL r32
+vec_length_sq(V2 vec)
+{
+  r32 result = 0.0f;
+
+  result = vec_dot(vec, vec);
+
+  return result;
+}
+
+INTERNAL r32
+vec_length(V2 vec)
+{
+  r32 result = 0.0f;
+
+  result = sqrt(vec_length_sq(vec));
+
+  return result;
+}
+
+union V3
 {
   struct 
   {
@@ -65,17 +152,22 @@ union v3
   r32 e[3];
 };
 
-INTERNAL v3
-V3(r32 x, r32 y, r32 z)
-{
-  v3 result = {};
 
-  result.x = x;
-  result.y = y;
-  result.z = z;
 
-  return result;
-}
+//INTERNAL r32
+//vec_length_sq(V3 v)
+//{
+//  r32 result = 0.0f;
+//
+//  result = vec_dot(v) * vec_dot(v);
+//}
+
+// IEEE 754 is in essense a compression algorithm, i.e. compressing all numbers from negative to positive infinity to a finite space of bits
+// Therefore, 0.1 + 0.2 != 0.3 (0.300000004) as it can't represent 0.3
+// epsilon is an allowable error margin for floating point
+//
+// this performs an automatic epsilon check
+//
 
 struct BitmapHeader
 {
@@ -102,19 +194,19 @@ struct BitmapHeader
 
 struct Material
 {
-  v3 colour;
+  V3 colour;
 };
 
 struct Plane
 {
-  v3 normal;
+  V3 normal;
   r32 distance; // distance along normal
   u32 material_index;
 };
 
 struct Sphere
 {
-  v3 position;
+  V3 position;
   r32 radius;
   u32 material_index;
 };
@@ -153,11 +245,11 @@ main(int argc, char *argv[])
   */
 
   Material materials[2] = {};
-  materials[0].colour = V3(0, 0, 0);
-  materials[1].colour = V3(1, 0, 0);
+  materials[0].colour = {0, 0, 0};
+  materials[1].colour = {1, 0, 0};
 
   Plane plane = {};
-  plane.normal = V3(0, 0, 1);
+  plane.normal = {0, 0, 1};
   plane.distance = 0;
   plane.material_index = 1;
 
@@ -169,8 +261,10 @@ main(int argc, char *argv[])
   world.sphere_count = 0;
   world.spheres = NULL;
 
-  v3 camera_pos = V3(0, 10, 1);
-  v3 camera_dir = V3();
+  /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
+   */
+  V3 camera_pos = {0, 10, 1};
+  V3 camera_dir = {0, 0, 0};
 
   uint output_width = 1280;
   uint output_height = 720;

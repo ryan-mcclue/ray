@@ -15,7 +15,7 @@ dev_type_flags="-O0 -g -ggdb3 -DRAY_SLOW -DRAY_INTERNAL"
 common_flags="$ignored_warnings -Icode -fno-exceptions -fno-rtti -std=c++2a -Werror -Wall -Wextra -pedantic 
   -Warray-bounds=2 -march=native -ffast-math -ffunction-sections -fdata-sections -Wl,--gc-sections"
 
-libraries=""
+libraries="-lm"
 
 ctime -begin misc/ray.ctm
 
