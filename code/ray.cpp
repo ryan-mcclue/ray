@@ -52,115 +52,7 @@ typedef double       r64;
   #define ASSERT(cond)
 #endif
 
-#include <math.h>
-
-union V2
-{
-  struct
-  {
-    r32 x, y;
-  };
-  r32 e[2];
-};
-
-INTERNAL V2
-operator*(r32 s, V2 vec)
-{
-  V2 result = {};
-
-  result.x = vec.x * s;
-  result.y = vec.y * s;
-  
-  return result;
-}
-
-INTERNAL V2
-operator*(V2 vec, r32 s)
-{
-  V2 result = s * vec;
-  
-  return result;
-}
-
-INTERNAL V2 &
-operator*=(V2 &vec, r32 s)
-{
-  vec = s * vec;
-
-  return vec;
-}
-
-INTERNAL V2
-operator+(V2 vec1, V2 vec2)
-{
-  V2 result = {};
-
-  result.x = vec1.x + vec2.x;
-  result.y = vec1.y + vec2.y;
-
-  return result;
-}
-
-INTERNAL V2 &
-operator+=(V2 &vec1, V2 vec2)
-{
-  vec1 = vec1 + vec2;
-
-  return vec1;
-}
-
-INTERNAL r32
-vec_dot(V2 vec1, V2 vec2)
-{
-  r32 result = 0.0f;
-
-  result = (vec1.x * vec2.x) + (vec1.y * vec2.y);
-
-  return result;
-}
-
-INTERNAL r32
-vec_length_sq(V2 vec)
-{
-  r32 result = 0.0f;
-
-  result = vec_dot(vec, vec);
-
-  return result;
-}
-
-INTERNAL r32
-vec_length(V2 vec)
-{
-  r32 result = 0.0f;
-
-  result = sqrt(vec_length_sq(vec));
-
-  return result;
-}
-
-union V3
-{
-  struct 
-  {
-    r32 x, y, z;
-  };
-  struct 
-  {
-    r32 r, g, b;
-  };
-  r32 e[3];
-};
-
-
-
-//INTERNAL r32
-//vec_length_sq(V3 v)
-//{
-//  r32 result = 0.0f;
-//
-//  result = vec_dot(v) * vec_dot(v);
-//}
+#include "math.h"
 
 // IEEE 754 is in essense a compression algorithm, i.e. compressing all numbers from negative to positive infinity to a finite space of bits
 // Therefore, 0.1 + 0.2 != 0.3 (0.300000004) as it can't represent 0.3
@@ -264,7 +156,11 @@ main(int argc, char *argv[])
   /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
    */
   V3 camera_pos = {0, 10, 1};
-  V3 camera_dir = {0, 0, 0};
+  // we are looking through -'z', i.e. opposite direction to what our camera z axis is
+  V3 camera_z = vec_noz(camera_pos);
+  // cross our z with universal z
+  V3 camera_x = vec_noz(vec_cross(camera_z, {0, 0, 1}));
+  V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
 
   uint output_width = 1280;
   uint output_height = 720;
