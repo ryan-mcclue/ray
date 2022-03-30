@@ -115,6 +115,16 @@ struct World
   Sphere *spheres;
 };
 
+INTERNAL V3
+cast_ray(World *world, V3 ray_origin, V3 ray_direction)
+{
+  V3 result = world->materials[0].colour;
+
+  r32 hit_distance = R32_MAX;
+
+  return result;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -128,12 +138,21 @@ main(int argc, char *argv[])
   }
 #endif
 
-  /* TODO(Ryan): Comparison between using uint and r32 here.
-     Difference between FPU and SIMD instructions.
+  /* 
+  TODO(Ryan): Comparison between using uint and r32 here.
+  Difference between FPU and SIMD instructions.
+
+  r32 val0 = 12.0f;
+  r32 val1 = 45.0f;
+  r32 test_val = 23.0f;
+  r32 norm_val = (test_val - val0) / (val1 - val0);
+  
   r32 x0 = 5.0f;
   r32 x1 = 10.0f;
   r32 blend = 0.5f;
   r32 lerp = ((x1 - x0) * blend) + x0;
+
+  map = norm + lerp;
   */
 
   Material materials[2] = {};
@@ -153,6 +172,7 @@ main(int argc, char *argv[])
   world.sphere_count = 0;
   world.spheres = NULL;
 
+  // right hand rule here to derive these?
   /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
    */
   V3 camera_pos = {0, 10, 1};
@@ -161,6 +181,13 @@ main(int argc, char *argv[])
   // cross our z with universal z
   V3 camera_x = vec_noz(vec_cross(camera_z, {0, 0, 1}));
   V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
+
+  r32 film_dist = 1.0f;
+  r32 film_w = 1.0f;
+  r32 film_h = 1.0f;
+  r32 half_film_w = 0.5f * film_w;
+  r32 half_film_h = 0.5f * film_h;
+  V3 film_centre = camera_pos - (film_dist * camera_z);
 
   uint output_width = 1280;
   uint output_height = 720;
@@ -174,11 +201,27 @@ main(int argc, char *argv[])
          y < output_height;
          ++y)
     {
+      // for camera, z axis is looking from, x and y determine plane aperture
+      r32 film_y = -1.0f + 2.0f * ((r32)y / (r32)output_height);
       for (uint x = 0; 
            x < output_width; 
            ++x)
       {
-        *out++ = (y < 32) ? 0xffff0000 : 0xff0000ff;
+        r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)output_width);
+
+        // need to do half width as from centre
+        V3 film_p = film_centre + (film_x * half_film_w * camera_x) + (film_y * half_film_h * camera_y);
+
+        V3 ray_origin = camera_pos;
+        // why is this not the other way round?
+        V3 ray_direction = vec_noz(film_p - camera_pos);
+
+        V3 colour = cast_ray(&world, ray_origin, ray_direction);
+
+        V4 bmp_colour = {255.0f, 255.0f*colour.r, 255.0f*colour.g, 255.0f*colour.b};
+        u32 bmp_value = pack_4x8(bmp_colour);
+        
+        *out++ = bmp_value;
       }
     }
 
