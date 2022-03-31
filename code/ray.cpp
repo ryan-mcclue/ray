@@ -120,7 +120,31 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
 {
   V3 result = world->materials[0].colour;
 
+  // closest hit
   r32 hit_distance = R32_MAX;
+
+  for (u32 plane_index = 0;
+       plane_index < world->plane_count;
+       ++plane_index)
+  {
+    Plane plane = world->planes[plane_index];
+
+    // for ray line: ray_origin + scale_factor·ray_direction
+    // substitute this in for point in plane equation and solve for scale_factor
+    r32 denom = vec_dot(plane.normal, ray_direction);
+    // zero if perpendicular to normal, a.k.a will never intersect plane
+    r32 tolerance = 0.0001f;
+    if (denom < -tolerance || denom > tolerance)
+    {
+      r32 this_distance = (-plane.distance - vec_dot(plane.normal, ray_origin)) / denom;
+      if (this_distance > 0 && this_distance < hit_distance)
+      {
+        hit_distance = this_distance;
+        result = world->materials[plane.material_index].colour;
+      }
+    }
+
+  }
 
   return result;
 }
@@ -128,7 +152,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
 int
 main(int argc, char *argv[])
 {
-  puts("Ray tracer");
+  puts("Ray tracing...");
 
 #if defined(RAY_INTERNAL)
   if (argc > 1 && strcmp(argv[1], "-debugger") == 0)
@@ -156,7 +180,7 @@ main(int argc, char *argv[])
   */
 
   Material materials[2] = {};
-  materials[0].colour = {0, 0, 0};
+  materials[0].colour = {0.1f, 0.1f, 0.1f};
   materials[1].colour = {1, 0, 0};
 
   Plane plane = {};
@@ -189,9 +213,9 @@ main(int argc, char *argv[])
   r32 half_film_h = 0.5f * film_h;
   V3 film_centre = camera_pos - (film_dist * camera_z);
 
-  uint output_width = 1280;
-  uint output_height = 720;
-  uint output_pixel_size = output_width * output_height * sizeof(u32);
+  u32 output_width = 1280;
+  u32 output_height = 720;
+  u32 output_pixel_size = output_width * output_height * sizeof(u32);
 
   u32 *pixels = (u32 *)malloc(output_pixel_size);
   if (pixels != NULL)
@@ -265,6 +289,8 @@ main(int argc, char *argv[])
   {
     EBP();
   }
+
+  puts("Done");
 
   return 0;
 }

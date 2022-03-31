@@ -335,12 +335,30 @@ union V4
 {
   struct
   {
-    r32 x, y, z, w;
+    union
+    {
+      V3 xyz;
+      struct
+      {
+        r32 x, y, z;
+      };
+    };
+    r32 w;
   };
+
   struct
   {
-    r32 r, g, b, a;
+    union
+    {
+      V3 rgb;
+      struct
+      {
+        r32 r, g, b;
+      };
+    };
+    r32 a;
   };
+
   r32 e[4];
 };
 

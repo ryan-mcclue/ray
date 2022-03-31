@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # SPDX-License-Identifier: zlib-acknowledgement
 set -e
 
@@ -25,4 +25,8 @@ g++ $common_compiler_flags $dev_type_flags \
 
 ctime -end misc/ray.ctm
 
-./build/ray
+pushd run >/dev/null
+../build/ray
+# IMPORTANT(Ryan): Must be opened previously with say, xdg-open
+wmctrl -a out.bmp
+popd >/dev/null
