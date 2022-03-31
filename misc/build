@@ -28,5 +28,5 @@ ctime -end misc/ray.ctm
 pushd run >/dev/null
 ../build/ray
 # IMPORTANT(Ryan): Must be opened previously with say, xdg-open
-wmctrl -a out.bmp
+#wmctrl -a out.bmp
 popd >/dev/null

@@ -13,8 +13,5 @@
 !code/**/*.cpp
 !code/**/*.[chS]
 
-!run/
-!run/**/*
-
 !cpp-master/
 !cpp-master/**/*

@@ -153,13 +153,16 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
   {
     Sphere sphere = world->spheres[sphere_index];
 
+    // to account for the sphere's origin
+    V3 sphere_relative_ray_origin = ray_origin - sphere.position;
+
     // for sphere: x² + y² + z² - r² = 0
     // we see that this contains the dot product of itself: pᵗp - r² = 0
     // substituting ray line equation we get a quadratic equation in terms of t
     // so, use quadratic formula to solve
     r32 a = vec_dot(ray_direction, ray_direction);
-    r32 b = 2 * vec_dot(ray_origin, ray_direction);
-    r32 c = vec_dot(ray_origin, ray_origin) - (sphere.radius * sphere.radius);
+    r32 b = 2 * vec_dot(ray_direction, sphere_relative_ray_origin);
+    r32 c = vec_dot(sphere_relative_ray_origin, sphere_relative_ray_origin) - (sphere.radius * sphere.radius);
 
     r32 denom = 2 * a;
     r32 root_term = square_root(b * b - 4.0f * a * c);
@@ -189,7 +192,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
 int
 main(int argc, char *argv[])
 {
-  puts("Ray tracing...");
+  printf("Ray tracing...\n");
 
 #if defined(RAY_INTERNAL)
   if (argc > 1 && strcmp(argv[1], "-debugger") == 0)
@@ -249,16 +252,26 @@ main(int argc, char *argv[])
   V3 camera_x = vec_noz(vec_cross({0, 0, 1}, camera_z));
   V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
 
+  u32 output_width = 1280;
+  u32 output_height = 720;
+  u32 output_pixel_size = output_width * output_height * sizeof(u32);
+
   r32 film_dist = 1.0f;
   r32 film_w = 1.0f;
   r32 film_h = 1.0f;
+  // aspect ratio correction
+  if (output_width > output_height)
+  {
+    film_h = film_w * ((r32)output_height / (r32)output_width);  
+  }
+  if (output_height > output_width)
+  {
+    film_w = film_h * ((r32)output_width / (r32)output_height);  
+  }
   r32 half_film_w = 0.5f * film_w;
   r32 half_film_h = 0.5f * film_h;
   V3 film_centre = camera_pos - (film_dist * camera_z);
 
-  u32 output_width = 1280;
-  u32 output_height = 720;
-  u32 output_pixel_size = output_width * output_height * sizeof(u32);
 
   u32 *pixels = (u32 *)malloc(output_pixel_size);
   if (pixels != NULL)
@@ -289,6 +302,8 @@ main(int argc, char *argv[])
         u32 bmp_value = pack_4x8(bmp_colour);
         
         *out++ = bmp_value;
+
+        printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
       }
     }
 
@@ -333,7 +348,7 @@ main(int argc, char *argv[])
     EBP();
   }
 
-  puts("Done");
+  printf("\nDone\n");
 
   return 0;
 }
