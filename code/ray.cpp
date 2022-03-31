@@ -122,6 +122,8 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
 
   // closest hit
   r32 hit_distance = R32_MAX;
+  // NOTE(Ryan): Ad-hoc value
+  r32 tolerance = 0.0001f;
 
   for (u32 plane_index = 0;
        plane_index < world->plane_count;
@@ -130,20 +132,55 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
     Plane plane = world->planes[plane_index];
 
     // for ray line: ray_origin + scale_factor·ray_direction
-    // substitute this in for point in plane equation and solve for scale_factor
+    // substitute this in for point in plane equation and solve for scale_factor (in this case 't')
     r32 denom = vec_dot(plane.normal, ray_direction);
     // zero if perpendicular to normal, a.k.a will never intersect plane
-    r32 tolerance = 0.0001f;
     if (denom < -tolerance || denom > tolerance)
     {
-      r32 this_distance = (-plane.distance - vec_dot(plane.normal, ray_origin)) / denom;
-      if (this_distance > 0 && this_distance < hit_distance)
+      r32 t = (-plane.distance - vec_dot(plane.normal, ray_origin)) / denom;
+      if (t > 0 && t < hit_distance)
       {
-        hit_distance = this_distance;
+        hit_distance = t;
         result = world->materials[plane.material_index].colour;
       }
     }
 
+  }
+
+  for (u32 sphere_index = 0;
+       sphere_index < world->sphere_count;
+       ++sphere_index)
+  {
+    Sphere sphere = world->spheres[sphere_index];
+
+    // for sphere: x² + y² + z² - r² = 0
+    // we see that this contains the dot product of itself: pᵗp - r² = 0
+    // substituting ray line equation we get a quadratic equation in terms of t
+    // so, use quadratic formula to solve
+    r32 a = vec_dot(ray_direction, ray_direction);
+    r32 b = 2 * vec_dot(ray_origin, ray_direction);
+    r32 c = vec_dot(ray_origin, ray_origin) - (sphere.radius * sphere.radius);
+
+    r32 denom = 2 * a;
+    r32 root_term = square_root(b * b - 4.0f * a * c);
+    if (root_term > tolerance)
+    {
+      r32 t_pos = (-b + root_term) / denom;
+      r32 t_neg = (-b - root_term) / denom;
+
+      r32 t = t_pos;
+      // check if t_neg is a better hit
+      if (t_neg > 0 && t_neg < t_pos)
+      {
+        t = t_neg;
+      }
+      
+      if (t > 0 && t < hit_distance)
+      {
+        hit_distance = t;
+        result = world->materials[sphere.material_index].colour;
+      }
+    }
   }
 
   return result;
@@ -179,31 +216,37 @@ main(int argc, char *argv[])
   map = norm + lerp;
   */
 
-  Material materials[2] = {};
+  Material materials[3] = {};
   materials[0].colour = {0.1f, 0.1f, 0.1f};
   materials[1].colour = {1, 0, 0};
+  materials[2].colour = {0, 0, 1};
 
   Plane plane = {};
   plane.normal = {0, 0, 1};
   plane.distance = 0;
   plane.material_index = 1;
 
+  Sphere sphere = {};
+  sphere.position = {0, 0, 0};
+  sphere.radius = 1.0f;
+  sphere.material_index = 2;
+
   World world = {};
-  world.material_count = 2;
+  world.material_count = 3;
   world.materials = materials;
   world.plane_count = 1;
   world.planes = &plane;
-  world.sphere_count = 0;
-  world.spheres = NULL;
+  world.sphere_count = 1;
+  world.spheres = &sphere;
 
   // right hand rule here to derive these?
   /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
    */
-  V3 camera_pos = {0, 10, 1};
+  V3 camera_pos = {0, -10, 1};
   // we are looking through -'z', i.e. opposite direction to what our camera z axis is
   V3 camera_z = vec_noz(camera_pos);
   // cross our z with universal z
-  V3 camera_x = vec_noz(vec_cross(camera_z, {0, 0, 1}));
+  V3 camera_x = vec_noz(vec_cross({0, 0, 1}, camera_z));
   V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
 
   r32 film_dist = 1.0f;
