@@ -411,3 +411,16 @@ pack_4x8(V4 val)
 
   return result;
 }
+
+INTERNAL V4
+linear1_to_srgb255(V4 colour)
+{
+  V4 result = {};
+
+  result.r = 255.0f * square_root(colour.r);
+  result.g = 255.0f * square_root(colour.g);
+  result.b = 255.0f * square_root(colour.b);
+  result.a = 255.0f * square_root(colour.a);
+
+  return result;
+}

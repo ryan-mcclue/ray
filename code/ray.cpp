@@ -192,7 +192,8 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
       V3 random_bounce = vec_noz(next_normal + v3(random_bilateral(), random_bilateral(), random_bilateral()));
       ray_direction = vec_noz(lerp(random_bounce, pure_bounce, hit_material.scatter));
 
-      // black dots are if reflected and never hit sky?
+      // black dots are if reflected and never hit sky
+      // could also be black say if purely red object attenuates the ray such that it does not reflect any green light so a green object will appear black as the red object as knocked out all the green
     }
     else
     {
@@ -238,26 +239,32 @@ main(int argc, char *argv[])
   */
 
   // in the final scene, the sphere and plane will reflect the sky's colour attenuated to a certain level
-  Material materials[3] = {};
+  Material materials[5] = {};
   materials[0].emitted_colour = {0.3f, 0.4f, 0.5f};
   materials[1].reflected_colour = {0.5f, 0.5f, 0.5f};
   materials[2].reflected_colour = {0.7f, 0.5f, 0.3f};
+  materials[3].reflected_colour = {0.9f, 0.0f, 0.0f};
+  materials[4].reflected_colour = {0.2f, 0.8f, 0.2f};
+  materials[4].scatter = 1.0f; 
 
   Plane planes[1] = {};
   planes[0].normal = {0, 0, 1};
   planes[0].distance = 0;
   planes[0].material_index = 1;
 
-  Sphere spheres[2] = {};
+  Sphere spheres[3] = {};
   spheres[0].position = {0, 0, 0};
   spheres[0].radius = 1.0f;
   spheres[0].material_index = 2;
-  spheres[1].position = {2, 0, 0};
+  spheres[1].position = {3, -2, 0};
   spheres[1].radius = 1.0f;
-  spheres[1].material_index = 2;
+  spheres[1].material_index = 3;
+  spheres[2].position = {-2, -1, 2};
+  spheres[2].radius = 1.0f;
+  spheres[2].material_index = 4;
 
   World world = {};
-  world.material_count = 3;
+  world.material_count = ARRAY_COUNT(materials);
   world.materials = materials;
   world.plane_count = ARRAY_COUNT(planes);
   world.planes = planes;
@@ -328,8 +335,10 @@ main(int argc, char *argv[])
           colour += contrib * cast_ray(&world, ray_origin, ray_direction);
         }
 
-        V4 bmp_colour = {255.0f, 255.0f*colour.r, 255.0f*colour.g, 255.0f*colour.b};
-        u32 bmp_value = pack_4x8(bmp_colour);
+        V4 bmp_linear1 = {1.0f, colour.r, colour.g, colour.b};
+        V4 bmp_srgb255 = linear1_to_srgb255(bmp_linear1);
+
+        u32 bmp_value = pack_4x8(bmp_srgb255);
         
         *out++ = bmp_value;
 
