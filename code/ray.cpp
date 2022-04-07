@@ -56,6 +56,26 @@ typedef u32          b32;
 #include "math.h"
 #include "ray.h"
 
+INTERNAL r32
+random_unilateral(void)
+{
+  r32 result = 0.0f;
+
+  result = (r32)rand() / (r32)RAND_MAX;
+
+  return result;
+}
+
+INTERNAL r32
+random_bilateral(void)
+{
+  r32 result = 0.0f;
+
+  result = -1.0f + 2.0f * random_unilateral();
+
+  return result;
+}
+
 // IEEE 754 is in essense a compression algorithm, i.e. compressing all numbers from negative to positive infinity to a finite space of bits
 // Therefore, 0.1 + 0.2 != 0.3 (0.300000004) as it can't represent 0.3
 // epsilon is an allowable error margin for floating point
@@ -82,6 +102,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
     // closest hit
     r32 hit_distance = R32_MAX;
 
+    // this is the sky material index, i.e. emitter of light
     u32 hit_material_index = 0;
     V3 next_origin = {};
     V3 next_normal = {};
@@ -104,7 +125,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
         {
           hit_distance = t;
           hit_material_index = plane.material_index;
-          next_origin = t * ray_direction;
+          next_origin = ray_origin + t * ray_direction;
           next_normal = plane.normal;
         }
       }
@@ -146,7 +167,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
         {
           hit_distance = t;
           hit_material_index = sphere.material_index;
-          next_origin = t * ray_direction;
+          next_origin = ray_origin + t * ray_direction;
           next_normal = vec_noz(next_origin - sphere.position);
         }
       }
@@ -157,10 +178,21 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
       Material hit_material = world->materials[hit_material_index];
 
       result += vec_hadamard(attenuation, hit_material.emitted_colour);
-      attenuation = vec_hadamard(attenuation, hit_material.reflected_colour);
+
+      r32 cos_attenuation = 1.0f;
+#if 0
+      cos_attenuation = vec_dot(-ray_direction, next_normal);
+      if (cos_attenuation < 0) cos_attenuation = 0.0f;
+#endif
+      attenuation = vec_hadamard(attenuation, cos_attenuation * hit_material.reflected_colour);
 
       ray_origin = next_origin;
-      ray_direction = next_normal;
+      // basic reflection here
+      V3 pure_bounce = ray_direction - 2.0f * vec_dot(ray_direction, next_normal) * next_normal;
+      V3 random_bounce = vec_noz(next_normal + v3(random_bilateral(), random_bilateral(), random_bilateral()));
+      ray_direction = vec_noz(lerp(random_bounce, pure_bounce, hit_material.scatter));
+
+      // black dots are if reflected and never hit sky?
     }
     else
     {
@@ -211,23 +243,26 @@ main(int argc, char *argv[])
   materials[1].reflected_colour = {0.5f, 0.5f, 0.5f};
   materials[2].reflected_colour = {0.7f, 0.5f, 0.3f};
 
-  Plane plane = {};
-  plane.normal = {0, 0, 1};
-  plane.distance = 0;
-  plane.material_index = 1;
+  Plane planes[1] = {};
+  planes[0].normal = {0, 0, 1};
+  planes[0].distance = 0;
+  planes[0].material_index = 1;
 
-  Sphere sphere = {};
-  sphere.position = {0, 0, 0};
-  sphere.radius = 1.0f;
-  sphere.material_index = 2;
+  Sphere spheres[2] = {};
+  spheres[0].position = {0, 0, 0};
+  spheres[0].radius = 1.0f;
+  spheres[0].material_index = 2;
+  spheres[1].position = {2, 0, 0};
+  spheres[1].radius = 1.0f;
+  spheres[1].material_index = 2;
 
   World world = {};
   world.material_count = 3;
   world.materials = materials;
-  world.plane_count = 1;
-  world.planes = &plane;
-  world.sphere_count = 1;
-  world.spheres = &sphere;
+  world.plane_count = ARRAY_COUNT(planes);
+  world.planes = planes;
+  world.sphere_count = ARRAY_COUNT(spheres);
+  world.spheres = spheres;
 
   // right hand rule here to derive these?
   /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
@@ -259,6 +294,7 @@ main(int argc, char *argv[])
   r32 half_film_h = 0.5f * film_h;
   V3 film_centre = camera_pos - (film_dist * camera_z);
 
+  u32 rays_per_pixel = 16;
 
   u32 *pixels = (u32 *)malloc(output_pixel_size);
   if (pixels != NULL)
@@ -282,7 +318,15 @@ main(int argc, char *argv[])
         V3 ray_origin = camera_pos;
         V3 ray_direction = vec_noz(film_p - camera_pos);
 
-        V3 colour = cast_ray(&world, ray_origin, ray_direction);
+        V3 colour = {};
+        r32 contrib = 1.0f / (r32)rays_per_pixel;
+        for (u32 ray_index = 0;
+             ray_index < rays_per_pixel;
+             ++ray_index)
+        {
+          // colour is a sum of a series of ray casts
+          colour += contrib * cast_ray(&world, ray_origin, ray_direction);
+        }
 
         V4 bmp_colour = {255.0f, 255.0f*colour.r, 255.0f*colour.g, 255.0f*colour.b};
         u32 bmp_value = pack_4x8(bmp_colour);

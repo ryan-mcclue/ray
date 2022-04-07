@@ -26,6 +26,7 @@ struct BitmapHeader
 
 struct Material
 {
+  r32 scatter; // 0 is diffuse, 1 is specular
   V3 emitted_colour;
   V3 reflected_colour;
 };

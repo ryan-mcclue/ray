@@ -6,6 +6,9 @@
 #include <float.h>
 #include <x86intrin.h>
 
+#define ARRAY_COUNT(arr) \
+  (sizeof(arr) / sizeof((arr)[0]))
+
 #define R32_MAX FLT_MAX
 #define R32_MIN -FLT_MAX
 
@@ -216,6 +219,18 @@ union V3
 };
 
 INTERNAL V3
+v3(r32 x, r32 y, r32 z)
+{
+  V3 result = {};
+
+  result.x = x;
+  result.y = y;
+  result.z = z;
+
+  return result;
+}
+
+INTERNAL V3
 vec_hadamard(V3 vec1, V3 vec2)
 {
   V3 result = {};
@@ -339,6 +354,16 @@ vec_noz(V3 vec)
   {
     result = vec * (1.0f / vec_length(vec));
   }
+
+  return result;
+}
+
+INTERNAL V3
+lerp(V3 start, V3 end, r32 p)
+{
+  V3 result = {};
+
+  result = ((end - start) * p) + start;
 
   return result;
 }

@@ -9,7 +9,8 @@ ignored_warning_flags="-Wno-unused-variable -Wno-unused-function -Wno-unused-but
   -Wno-unused-parameter -Wno-missing-field-initializers -Wno-write-strings
   -Wno-unused-result"
 
-dev_type_flags="-O0 -g -ggdb3 -DRAY_SLOW -DRAY_INTERNAL"
+#dev_type_flags="-O0 -g -ggdb3 -DRAY_SLOW -DRAY_INTERNAL"
+dev_type_flags="-O3 -DRAY_FAST -DRAY_EXTERNAL"
 
 # TODO(Ryan): Are we fine with breaking IEEE floating point (losing precision) for speed?
 common_flags="$ignored_warnings -Icode -fno-exceptions -fno-rtti -std=c++2a -Werror -Wall -Wextra -pedantic 
