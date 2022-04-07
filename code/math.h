@@ -216,6 +216,18 @@ union V3
 };
 
 INTERNAL V3
+vec_hadamard(V3 vec1, V3 vec2)
+{
+  V3 result = {};
+
+  result.x = vec1.x * vec2.x;
+  result.y = vec1.y * vec2.y;
+  result.z = vec1.z * vec2.z;
+
+  return result;
+}
+
+INTERNAL V3
 vec_cross(V3 vec1, V3 vec2)
 {
   V3 result = {};

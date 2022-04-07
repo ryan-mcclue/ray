@@ -21,6 +21,7 @@ typedef int32_t      s32;
 typedef int64_t      s64;
 typedef float        r32;
 typedef double       r64;
+typedef u32          b32;
 
 #if defined(RAY_INTERNAL)
   INTERNAL void __bp_non_debugger(char const *file_name, char const *func_name, int line_num)
@@ -53,6 +54,7 @@ typedef double       r64;
 #endif
 
 #include "math.h"
+#include "ray.h"
 
 // IEEE 754 is in essense a compression algorithm, i.e. compressing all numbers from negative to positive infinity to a finite space of bits
 // Therefore, 0.1 + 0.2 != 0.3 (0.300000004) as it can't represent 0.3
@@ -61,128 +63,112 @@ typedef double       r64;
 // this performs an automatic epsilon check
 //
 
-struct BitmapHeader
-{
-  u16 signature;
-  u32 file_size;
-  u32 reserved;
-  u32 data_offset;
-  u32 size;
-  u32 width;
-  u32 height;
-  u16 planes;
-  u16 bits_per_pixel;
-  u32 compression;
-  u32 size_of_bitmap;
-  u32 horz_resolution;
-  u32 vert_resolution;
-  u32 colors_used;
-  u32 colors_important;
-
-  u32 red_mask;
-  u32 green_mask;
-  u32 blue_mask;
-} __attribute__((packed));
-
-struct Material
-{
-  V3 colour;
-};
-
-struct Plane
-{
-  V3 normal;
-  r32 distance; // distance along normal
-  u32 material_index;
-};
-
-struct Sphere
-{
-  V3 position;
-  r32 radius;
-  u32 material_index;
-};
-
-struct World
-{ 
-  u32 material_count;
-  Material *materials;
-
-  u32 plane_count;
-  Plane *planes;
-
-  u32 sphere_count;
-  Sphere *spheres;
-};
-
 INTERNAL V3
 cast_ray(World *world, V3 ray_origin, V3 ray_direction)
 {
-  V3 result = world->materials[0].colour;
+  V3 result = {};
+  // starts as 1 as we have not attenuated the light at all
+  // i.e. when we initially cast a ray, there is no light absorption at all
+  V3 attenuation = {1, 1, 1};
 
-  // closest hit
-  r32 hit_distance = R32_MAX;
+  r32 min_hit_distance = 0.001f; // as oppose to using 0?
   // NOTE(Ryan): Ad-hoc value
   r32 tolerance = 0.0001f;
 
-  for (u32 plane_index = 0;
-       plane_index < world->plane_count;
-       ++plane_index)
+  for (u32 ray_count = 0;
+       ray_count < 8;
+       ++ray_count)
   {
-    Plane plane = world->planes[plane_index];
+    // closest hit
+    r32 hit_distance = R32_MAX;
 
-    // for ray line: ray_origin + scale_factor·ray_direction
-    // substitute this in for point in plane equation and solve for scale_factor (in this case 't')
-    r32 denom = vec_dot(plane.normal, ray_direction);
-    // zero if perpendicular to normal, a.k.a will never intersect plane
-    if (denom < -tolerance || denom > tolerance)
+    u32 hit_material_index = 0;
+    V3 next_origin = {};
+    V3 next_normal = {};
+
+    for (u32 plane_index = 0;
+        plane_index < world->plane_count;
+        ++plane_index)
     {
-      r32 t = (-plane.distance - vec_dot(plane.normal, ray_origin)) / denom;
-      if (t > 0 && t < hit_distance)
+      Plane plane = world->planes[plane_index];
+
+      // for ray line: ray_origin + scale_factor·ray_direction
+      // substitute this in for point in plane equation and solve for scale_factor (in this case 't')
+      // (in this sense, is it more appropriate to say check for intersection?)
+      r32 denom = vec_dot(plane.normal, ray_direction);
+      // zero if perpendicular to normal, a.k.a will never intersect plane
+      if (denom < -tolerance || denom > tolerance)
       {
-        hit_distance = t;
-        result = world->materials[plane.material_index].colour;
+        r32 t = (-plane.distance - vec_dot(plane.normal, ray_origin)) / denom;
+        if (t > min_hit_distance && t < hit_distance)
+        {
+          hit_distance = t;
+          hit_material_index = plane.material_index;
+          next_origin = t * ray_direction;
+          next_normal = plane.normal;
+        }
+      }
+
+    }
+
+    for (u32 sphere_index = 0;
+        sphere_index < world->sphere_count;
+        ++sphere_index)
+    {
+      Sphere sphere = world->spheres[sphere_index];
+
+      // to account for the sphere's origin
+      V3 sphere_relative_ray_origin = ray_origin - sphere.position;
+
+      // for sphere: x² + y² + z² - r² = 0
+      // we see that this contains the dot product of itself: pᵗp - r² = 0
+      // substituting ray line equation we get a quadratic equation in terms of t
+      // so, use quadratic formula to solve
+      r32 a = vec_dot(ray_direction, ray_direction);
+      r32 b = 2 * vec_dot(ray_direction, sphere_relative_ray_origin);
+      r32 c = vec_dot(sphere_relative_ray_origin, sphere_relative_ray_origin) - (sphere.radius * sphere.radius);
+
+      r32 denom = 2 * a;
+      r32 root_term = square_root(b * b - 4.0f * a * c);
+      if (root_term > tolerance)
+      {
+        r32 t_pos = (-b + root_term) / denom;
+        r32 t_neg = (-b - root_term) / denom;
+
+        r32 t = t_pos;
+        // check if t_neg is a better hit
+        if (t_neg > min_hit_distance && t_neg < t_pos)
+        {
+          t = t_neg;
+        }
+        
+        if (t > min_hit_distance && t < hit_distance)
+        {
+          hit_distance = t;
+          hit_material_index = sphere.material_index;
+          next_origin = t * ray_direction;
+          next_normal = vec_noz(next_origin - sphere.position);
+        }
       }
     }
 
-  }
-
-  for (u32 sphere_index = 0;
-       sphere_index < world->sphere_count;
-       ++sphere_index)
-  {
-    Sphere sphere = world->spheres[sphere_index];
-
-    // to account for the sphere's origin
-    V3 sphere_relative_ray_origin = ray_origin - sphere.position;
-
-    // for sphere: x² + y² + z² - r² = 0
-    // we see that this contains the dot product of itself: pᵗp - r² = 0
-    // substituting ray line equation we get a quadratic equation in terms of t
-    // so, use quadratic formula to solve
-    r32 a = vec_dot(ray_direction, ray_direction);
-    r32 b = 2 * vec_dot(ray_direction, sphere_relative_ray_origin);
-    r32 c = vec_dot(sphere_relative_ray_origin, sphere_relative_ray_origin) - (sphere.radius * sphere.radius);
-
-    r32 denom = 2 * a;
-    r32 root_term = square_root(b * b - 4.0f * a * c);
-    if (root_term > tolerance)
+    if (hit_material_index > 0)
     {
-      r32 t_pos = (-b + root_term) / denom;
-      r32 t_neg = (-b - root_term) / denom;
+      Material hit_material = world->materials[hit_material_index];
 
-      r32 t = t_pos;
-      // check if t_neg is a better hit
-      if (t_neg > 0 && t_neg < t_pos)
-      {
-        t = t_neg;
-      }
-      
-      if (t > 0 && t < hit_distance)
-      {
-        hit_distance = t;
-        result = world->materials[sphere.material_index].colour;
-      }
+      result += vec_hadamard(attenuation, hit_material.emitted_colour);
+      attenuation = vec_hadamard(attenuation, hit_material.reflected_colour);
+
+      ray_origin = next_origin;
+      ray_direction = next_normal;
+    }
+    else
+    {
+      Material hit_material = world->materials[hit_material_index];
+
+      result += vec_hadamard(attenuation, hit_material.emitted_colour);
+
+      break;
     }
   }
 
@@ -219,10 +205,11 @@ main(int argc, char *argv[])
   map = norm + lerp;
   */
 
+  // in the final scene, the sphere and plane will reflect the sky's colour attenuated to a certain level
   Material materials[3] = {};
-  materials[0].colour = {0.1f, 0.1f, 0.1f};
-  materials[1].colour = {1, 0, 0};
-  materials[2].colour = {0, 0, 1};
+  materials[0].emitted_colour = {0.3f, 0.4f, 0.5f};
+  materials[1].reflected_colour = {0.5f, 0.5f, 0.5f};
+  materials[2].reflected_colour = {0.7f, 0.5f, 0.3f};
 
   Plane plane = {};
   plane.normal = {0, 0, 1};
@@ -293,7 +280,6 @@ main(int argc, char *argv[])
         V3 film_p = film_centre + (film_x * half_film_w * camera_x) + (film_y * half_film_h * camera_y);
 
         V3 ray_origin = camera_pos;
-        // why is this not the other way round?
         V3 ray_direction = vec_noz(film_p - camera_pos);
 
         V3 colour = cast_ray(&world, ray_origin, ray_direction);
