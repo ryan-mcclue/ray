@@ -55,4 +55,6 @@ struct World
 
   u32 sphere_count;
   Sphere *spheres;
+
+  u64 bounces_computed;
 };

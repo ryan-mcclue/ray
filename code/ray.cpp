@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 
 #define INTERNAL      static
 #define GLOBAL        static
@@ -95,10 +96,12 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
   // NOTE(Ryan): Ad-hoc value
   r32 tolerance = 0.0001f;
 
-  for (u32 ray_count = 0;
-       ray_count < 8;
-       ++ray_count)
+  for (u32 bounce_count = 0;
+       bounce_count < 8;
+       ++bounce_count)
   {
+    ++world->bounces_computed;
+
     // closest hit
     r32 hit_distance = R32_MAX;
 
@@ -211,6 +214,9 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
 int
 main(int argc, char *argv[])
 {
+  // microsecond resolution; even millisecond would be fine as we are timing large loops
+  // printf("Clocks per second: %ld\n", CLOCKS_PER_SEC);
+
   printf("Ray tracing...\n");
 
 #if defined(RAY_INTERNAL)
@@ -310,6 +316,9 @@ main(int argc, char *argv[])
   r32 half_pix_h = 0.5f / output_height;
   u32 rays_per_pixel = 16;
 
+  clock_t start_clock = clock();
+  clock_t end_clock;
+
   u32 *pixels = (u32 *)malloc(output_pixel_size);
   if (pixels != NULL)
   {
@@ -357,9 +366,11 @@ main(int argc, char *argv[])
         
         *out++ = bmp_value;
 
-        printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
+        //printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
       }
     }
+
+    end_clock = clock();
 
     BitmapHeader bitmap_header = {};
 
@@ -402,6 +413,12 @@ main(int argc, char *argv[])
     EBP();
   }
 
+  clock_t time_elapsed_ms = (end_clock - start_clock) / 1000.0f;
+  printf("Raycasting time: %lums\n", time_elapsed_ms);
+  printf("Bounces computed: %lu\n", world.bounces_computed);
+  // we want to generate a metric that is constant across runs so that we can ascertain if we have made performace improvements  
+  // currently: 0.000054ms/bounce
+  printf("Performance: %fms/bounce\n", (r64)time_elapsed_ms / world.bounces_computed);
   printf("\nDone\n");
 
   return 0;
