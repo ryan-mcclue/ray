@@ -180,7 +180,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
       result += vec_hadamard(attenuation, hit_material.emitted_colour);
 
       r32 cos_attenuation = 1.0f;
-#if 0
+#if 1
       cos_attenuation = vec_dot(-ray_direction, next_normal);
       if (cos_attenuation < 0) cos_attenuation = 0.0f;
 #endif
@@ -239,20 +239,22 @@ main(int argc, char *argv[])
   */
 
   // in the final scene, the sphere and plane will reflect the sky's colour attenuated to a certain level
-  Material materials[5] = {};
+  Material materials[6] = {};
   materials[0].emitted_colour = {0.3f, 0.4f, 0.5f};
   materials[1].reflected_colour = {0.5f, 0.5f, 0.5f};
   materials[2].reflected_colour = {0.7f, 0.5f, 0.3f};
-  materials[3].reflected_colour = {0.9f, 0.0f, 0.0f};
+  materials[3].emitted_colour = {4.0f, 0.0f, 0.0f};
   materials[4].reflected_colour = {0.2f, 0.8f, 0.2f};
-  materials[4].scatter = 1.0f; 
+  materials[4].scatter = 0.7f; 
+  materials[5].reflected_colour = {0.4f, 0.8f, 0.9f};
+  materials[5].scatter = 0.85f; 
 
   Plane planes[1] = {};
   planes[0].normal = {0, 0, 1};
   planes[0].distance = 0;
   planes[0].material_index = 1;
 
-  Sphere spheres[3] = {};
+  Sphere spheres[4] = {};
   spheres[0].position = {0, 0, 0};
   spheres[0].radius = 1.0f;
   spheres[0].material_index = 2;
@@ -262,6 +264,9 @@ main(int argc, char *argv[])
   spheres[2].position = {-2, -1, 2};
   spheres[2].radius = 1.0f;
   spheres[2].material_index = 4;
+  spheres[3].position = {1, -1, 3};
+  spheres[3].radius = 1.0f;
+  spheres[3].material_index = 5;
 
   World world = {};
   world.material_count = ARRAY_COUNT(materials);
@@ -301,6 +306,8 @@ main(int argc, char *argv[])
   r32 half_film_h = 0.5f * film_h;
   V3 film_centre = camera_pos - (film_dist * camera_z);
 
+  r32 half_pix_w = 0.5f / output_width;
+  r32 half_pix_h = 0.5f / output_height;
   u32 rays_per_pixel = 16;
 
   u32 *pixels = (u32 *)malloc(output_pixel_size);
@@ -319,24 +326,32 @@ main(int argc, char *argv[])
       {
         r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)output_width);
 
-        // need to do half width as from centre
-        V3 film_p = film_centre + (film_x * half_film_w * camera_x) + (film_y * half_film_h * camera_y);
-
-        V3 ray_origin = camera_pos;
-        V3 ray_direction = vec_noz(film_p - camera_pos);
-
         V3 colour = {};
         r32 contrib = 1.0f / (r32)rays_per_pixel;
         for (u32 ray_index = 0;
              ray_index < rays_per_pixel;
              ++ray_index)
         {
+          // we can get some anti-aliasing here
+          r32 jitter_offx = film_x + random_bilateral() * half_pix_w;
+          r32 jitter_offy = film_y + random_bilateral() * half_pix_h;
+
+          // need to do half width as from centre
+          V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
+
+          V3 ray_origin = camera_pos;
+          V3 ray_direction = vec_noz(film_p - camera_pos);
+          
           // colour is a sum of a series of ray casts
           colour += contrib * cast_ray(&world, ray_origin, ray_direction);
         }
 
-        V4 bmp_linear1 = {1.0f, colour.r, colour.g, colour.b};
-        V4 bmp_srgb255 = linear1_to_srgb255(bmp_linear1);
+        V4 bmp_srgb255 = { 
+          255.0f, 
+          255.0f * exact_linear1_to_srgb1(colour.r),
+          255.0f * exact_linear1_to_srgb1(colour.g),
+          255.0f * exact_linear1_to_srgb1(colour.b)
+        };
 
         u32 bmp_value = pack_4x8(bmp_srgb255);
         

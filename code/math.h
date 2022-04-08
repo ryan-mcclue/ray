@@ -314,6 +314,18 @@ operator-(V3 vec1, V3 vec2)
   return result;
 }
 
+INTERNAL V3
+operator-(V3 vec)
+{
+  V3 result = {};
+  
+  result.x = -vec.x;
+  result.y = -vec.y;
+  result.z = -vec.z;
+
+  return result;
+}
+
 INTERNAL r32
 vec_dot(V3 vec1, V3 vec2)
 {
@@ -421,6 +433,29 @@ linear1_to_srgb255(V4 colour)
   result.g = 255.0f * square_root(colour.g);
   result.b = 255.0f * square_root(colour.b);
   result.a = 255.0f * square_root(colour.a);
+
+  return result;
+}
+
+INTERNAL r32
+exact_linear1_to_srgb1(r32 linear1)
+{
+  if (linear1 < 0.0f)
+  {
+    linear1 = 0.0f;
+  }
+  if (linear1 > 1.0f)
+  {
+    linear1 = 1.0f;
+  }
+
+  r32 result = 0.0f;
+
+  result = linear1 * 12.92f;
+  if (linear1 > 0.0031308f)
+  {
+    result = 1.055f * pow(linear1, 1.0f/2.4f) - 0.055f;
+  }
 
   return result;
 }
