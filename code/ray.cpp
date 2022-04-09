@@ -57,6 +57,58 @@ typedef u32          b32;
 #include "math.h"
 #include "ray.h"
 
+INTERNAL ImageU32
+create_image_u32(u32 width, u32 height)
+{
+  ImageU32 result = {};
+
+  result.width = width;
+  result.height = height;
+
+  result.pixels = (u32 *)malloc(width * height * sizeof(u32));
+  if (result.pixels == NULL) EBP();
+
+  return result;
+}
+
+INTERNAL void
+write_image_u32_to_bmp(ImageU32 *image_u32, char *file_name)
+{
+  BitmapHeader bitmap_header = {};
+
+  u32 output_pixel_size = image->width * image->height * sizeof(u32);
+
+  bitmap_header.signature = 0x4d42;
+  bitmap_header.file_size = sizeof(bitmap_header) + output_pixel_size;
+  bitmap_header.data_offset = sizeof(bitmap_header);
+  bitmap_header.size = sizeof(bitmap_header) - 14;
+  bitmap_header.width = image->width;
+  bitmap_header.height = image->height;
+  bitmap_header.planes = 1;
+  bitmap_header.bits_per_pixel = 32;
+  bitmap_header.compression = 3;
+  bitmap_header.size_of_bitmap = 0;
+  bitmap_header.horz_resolution = 4096;
+  bitmap_header.vert_resolution = 4096;
+  bitmap_header.colors_used = 0;
+  bitmap_header.colors_important = 0;
+  bitmap_header.red_mask   = 0x00ff0000;
+  bitmap_header.green_mask = 0x0000ff00;
+  bitmap_header.blue_mask  = 0x000000ff;
+
+  FILE *out_file = fopen(file_name, "wb"); 
+  if (out_file != NULL)
+  {
+    uint header_written = fwrite(&bitmap_header, sizeof(bitmap_header), 1, out_file);
+    if (header_written != 1) EBP();
+
+    uint pixels_written = fwrite(pixels, output_pixel_size, 1, out_file);
+    if (pixels_written != 1) EBP();
+
+    fclose(out_file);
+  }
+}
+
 INTERNAL r32
 random_unilateral(void)
 {
@@ -83,6 +135,7 @@ random_bilateral(void)
 //
 // this performs an automatic epsilon check
 //
+
 
 INTERNAL V3
 cast_ray(World *world, V3 ray_origin, V3 ray_direction)
@@ -211,6 +264,57 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
   return result;
 }
 
+INTERNAL void
+render_tile(World *world, ImageU32 *image, u32 x_min, u32 x_count, u32 y_min, y32 y_count)
+{
+  u32 rays_per_pixel = 16;
+    u32 *out = pixels;
+    for (uint y = 0; 
+         y < image->height;
+         ++y)
+    {
+      // for camera, z axis is looking from, x and y determine plane aperture r32 film_y = -1.0f + 2.0f * ((r32)y / (r32)output_height);
+      for (uint x = 0; 
+           x < image->width; 
+           ++x)
+      {
+        r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)image->width);
+
+        V3 colour = {};
+        r32 contrib = 1.0f / (r32)rays_per_pixel;
+        for (u32 ray_index = 0;
+             ray_index < rays_per_pixel;
+             ++ray_index)
+        {
+          // we can get some anti-aliasing here
+          r32 jitter_offx = film_x + random_bilateral() * half_pix_w;
+          r32 jitter_offy = film_y + random_bilateral() * half_pix_h;
+
+          // need to do half width as from centre
+          V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
+
+          V3 ray_origin = camera_pos;
+          V3 ray_direction = vec_noz(film_p - camera_pos);
+          
+          // colour is a sum of a series of ray casts
+          colour += contrib * cast_ray(&world, ray_origin, ray_direction);
+        }
+
+        V4 bmp_srgb255 = { 
+          255.0f, 
+          255.0f * exact_linear1_to_srgb1(colour.r),
+          255.0f * exact_linear1_to_srgb1(colour.g),
+          255.0f * exact_linear1_to_srgb1(colour.b)
+        };
+
+        u32 bmp_value = pack_4x8(bmp_srgb255);
+        
+        *out++ = bmp_value;
+
+        //printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
+      }
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -243,7 +347,6 @@ main(int argc, char *argv[])
 
   map = norm + lerp;
   */
-
   // in the final scene, the sphere and plane will reflect the sky's colour attenuated to a certain level
   Material materials[6] = {};
   materials[0].emitted_colour = {0.3f, 0.4f, 0.5f};
@@ -292,134 +395,46 @@ main(int argc, char *argv[])
   V3 camera_x = vec_noz(vec_cross({0, 0, 1}, camera_z));
   V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
 
-  u32 output_width = 1280;
-  u32 output_height = 720;
-  u32 output_pixel_size = output_width * output_height * sizeof(u32);
-
-  r32 film_dist = 1.0f;
-  r32 film_w = 1.0f;
-  r32 film_h = 1.0f;
-  // aspect ratio correction
-  if (output_width > output_height)
+  ImageU32 image_u32 = create_image_u32(1280, 720);
+  if (image_u32.pixels != NULL)
   {
-    film_h = film_w * ((r32)output_height / (r32)output_width);  
-  }
-  if (output_height > output_width)
-  {
-    film_w = film_h * ((r32)output_width / (r32)output_height);  
-  }
-  r32 half_film_w = 0.5f * film_w;
-  r32 half_film_h = 0.5f * film_h;
-  V3 film_centre = camera_pos - (film_dist * camera_z);
-
-  r32 half_pix_w = 0.5f / output_width;
-  r32 half_pix_h = 0.5f / output_height;
-  u32 rays_per_pixel = 16;
-
-  clock_t start_clock = clock();
-  clock_t end_clock;
-
-  u32 *pixels = (u32 *)malloc(output_pixel_size);
-  if (pixels != NULL)
-  {
-    u32 *out = pixels;
-    for (uint y = 0; 
-         y < output_height;
-         ++y)
+    r32 film_dist = 1.0f;
+    r32 film_w = 1.0f;
+    r32 film_h = 1.0f;
+    // aspect ratio correction
+    if (image.width > image.height)
     {
-      // for camera, z axis is looking from, x and y determine plane aperture
-      r32 film_y = -1.0f + 2.0f * ((r32)y / (r32)output_height);
-      for (uint x = 0; 
-           x < output_width; 
-           ++x)
-      {
-        r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)output_width);
-
-        V3 colour = {};
-        r32 contrib = 1.0f / (r32)rays_per_pixel;
-        for (u32 ray_index = 0;
-             ray_index < rays_per_pixel;
-             ++ray_index)
-        {
-          // we can get some anti-aliasing here
-          r32 jitter_offx = film_x + random_bilateral() * half_pix_w;
-          r32 jitter_offy = film_y + random_bilateral() * half_pix_h;
-
-          // need to do half width as from centre
-          V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
-
-          V3 ray_origin = camera_pos;
-          V3 ray_direction = vec_noz(film_p - camera_pos);
-          
-          // colour is a sum of a series of ray casts
-          colour += contrib * cast_ray(&world, ray_origin, ray_direction);
-        }
-
-        V4 bmp_srgb255 = { 
-          255.0f, 
-          255.0f * exact_linear1_to_srgb1(colour.r),
-          255.0f * exact_linear1_to_srgb1(colour.g),
-          255.0f * exact_linear1_to_srgb1(colour.b)
-        };
-
-        u32 bmp_value = pack_4x8(bmp_srgb255);
-        
-        *out++ = bmp_value;
-
-        //printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
-      }
+      film_h = film_w * ((r32)image.height / (r32)image.width);  
     }
+    if (image.height > image.width)
+    {
+      film_w = film_h * ((r32)image.width / (r32)image.height);  
+    }
+    r32 half_film_w = 0.5f * film_w;
+    r32 half_film_h = 0.5f * film_h;
+    V3 film_centre = camera_pos - (film_dist * camera_z);
+
+    r32 half_pix_w = 0.5f / image.width;
+    r32 half_pix_h = 0.5f / image.height;
+
+    clock_t start_clock = clock();
+    clock_t end_clock;
+
+    u32 rays_per_pixel = 16;
+    // copied
 
     end_clock = clock();
 
-    BitmapHeader bitmap_header = {};
+    write_image_u32_to_bmp(&image_u32, "output.bmp");
 
-    bitmap_header.signature = 0x4d42;
-    bitmap_header.file_size = sizeof(bitmap_header) + output_pixel_size;
-    bitmap_header.data_offset = sizeof(bitmap_header);
-    bitmap_header.size = sizeof(bitmap_header) - 14;
-    bitmap_header.width = output_width;
-    bitmap_header.height = output_height;
-    bitmap_header.planes = 1;
-    bitmap_header.bits_per_pixel = 32;
-    bitmap_header.compression = 3;
-    bitmap_header.size_of_bitmap = 0;
-    bitmap_header.horz_resolution = 4096;
-    bitmap_header.vert_resolution = 4096;
-    bitmap_header.colors_used = 0;
-    bitmap_header.colors_important = 0;
-    bitmap_header.red_mask   = 0x00ff0000;
-    bitmap_header.green_mask = 0x0000ff00;
-    bitmap_header.blue_mask  = 0x000000ff;
-
-    FILE *out_file = fopen("out.bmp", "wb"); 
-    if (out_file != NULL)
-    {
-      uint header_written = fwrite(&bitmap_header, sizeof(bitmap_header), 1, out_file);
-      if (header_written != 1) EBP();
-
-      uint pixels_written = fwrite(pixels, output_pixel_size, 1, out_file);
-      if (pixels_written != 1) EBP();
-
-      fclose(out_file);
-    }
-    else
-    {
-      EBP();
-    }
-  } 
-  else
-  {
-    EBP();
+    clock_t time_elapsed_ms = (end_clock - start_clock) / 1000.0f;
+    printf("Raycasting time: %lums\n", time_elapsed_ms);
+    printf("Bounces computed: %lu\n", world.bounces_computed);
+    // we want to generate a metric that is constant across runs so that we can ascertain if we have made performace improvements  
+    // currently: 0.000054ms/bounce
+    printf("Performance: %fms/bounce\n", (r64)time_elapsed_ms / world.bounces_computed);
+    printf("\nDone\n");
   }
-
-  clock_t time_elapsed_ms = (end_clock - start_clock) / 1000.0f;
-  printf("Raycasting time: %lums\n", time_elapsed_ms);
-  printf("Bounces computed: %lu\n", world.bounces_computed);
-  // we want to generate a metric that is constant across runs so that we can ascertain if we have made performace improvements  
-  // currently: 0.000054ms/bounce
-  printf("Performance: %fms/bounce\n", (r64)time_elapsed_ms / world.bounces_computed);
-  printf("\nDone\n");
 
   return 0;
 }

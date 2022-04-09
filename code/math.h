@@ -73,8 +73,6 @@ round_r32_to_u32(r32 real32)
 //}
 //
 
-
-
 INTERNAL r32
 square(r32 x)
 {
@@ -103,6 +101,17 @@ union V2
   };
   r32 e[2];
 };
+
+INTERNAL V2
+v2(r32 x, r32 y)
+{
+  V2 result = {};
+
+  result.x = x;
+  result.y = y;
+  
+  return result;
+}
 
 INTERNAL V2
 operator*(r32 s, V2 vec)
@@ -157,6 +166,17 @@ operator-(V2 vec1, V2 vec2)
 
   result.x = vec1.x - vec2.x;
   result.y = vec1.y - vec2.y;
+
+  return result;
+}
+
+INTERNAL V2
+operator-(V2 vec)
+{
+  V2 result = {};
+
+  result.x = -vec.x;
+  result.y = -vec.y;
 
   return result;
 }
@@ -226,7 +246,7 @@ v3(r32 x, r32 y, r32 z)
   result.x = x;
   result.y = y;
   result.z = z;
-
+  
   return result;
 }
 
@@ -410,6 +430,19 @@ union V4
 
   r32 e[4];
 };
+
+INTERNAL V4
+v4(r32 x, r32 y, r32 z, r32 w)
+{
+  V4 result = {};
+
+  result.x = x;
+  result.y = y;
+  result.z = z;
+  result.w = w;
+  
+  return result;
+}
 
 INTERNAL u32
 pack_4x8(V4 val)

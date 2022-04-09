@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: zlib-acknowledgement
 #pragma once
 
+struct ImageU32
+{
+  u32 width, height;
+  u32 *pixels;
+};
+
 struct BitmapHeader
 {
   u16 signature;
