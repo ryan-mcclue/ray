@@ -72,7 +72,7 @@ create_image_u32(u32 width, u32 height)
 }
 
 INTERNAL void
-write_image_u32_to_bmp(ImageU32 *image_u32, char *file_name)
+write_image_u32_to_bmp(ImageU32 *image, char const *file_name)
 {
   BitmapHeader bitmap_header = {};
 
@@ -102,7 +102,7 @@ write_image_u32_to_bmp(ImageU32 *image_u32, char *file_name)
     uint header_written = fwrite(&bitmap_header, sizeof(bitmap_header), 1, out_file);
     if (header_written != 1) EBP();
 
-    uint pixels_written = fwrite(pixels, output_pixel_size, 1, out_file);
+    uint pixels_written = fwrite(image->pixels, output_pixel_size, 1, out_file);
     if (pixels_written != 1) EBP();
 
     fclose(out_file);
@@ -264,55 +264,98 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
   return result;
 }
 
-INTERNAL void
-render_tile(World *world, ImageU32 *image, u32 x_min, u32 x_count, u32 y_min, y32 y_count)
+INTERNAL u32 *
+get_pixel_pointer(ImageU32 *image, u32 x, u32 y)
 {
+  u32 *result = NULL;
+  
+  result = image->pixels + y * image->width + x;
+
+  return result;
+}
+
+INTERNAL void
+render_tile(World *world, ImageU32 *image, u32 x_min, u32 y_min, 
+            u32 one_past_x_max, u32 one_past_y_max)
+{
+  // right hand rule here to derive these?
+  /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
+   */
+  V3 camera_pos = {0, -10, 1};
+  // we are looking through -'z', i.e. opposite direction to what our camera z axis is
+  V3 camera_z = vec_noz(camera_pos);
+  // cross our z with universal z
+  V3 camera_x = vec_noz(vec_cross({0, 0, 1}, camera_z));
+  V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
+
+  r32 film_dist = 1.0f;
+  r32 film_w = 1.0f;
+  r32 film_h = 1.0f;
+  // aspect ratio correction
+  if (image->width > image->height)
+  {
+    film_h = film_w * ((r32)image->height / (r32)image->width);  
+  }
+  if (image->height > image->width)
+  {
+    film_w = film_h * ((r32)image->width / (r32)image->height);  
+  }
+  r32 half_film_w = 0.5f * film_w;
+  r32 half_film_h = 0.5f * film_h;
+  V3 film_centre = camera_pos - (film_dist * camera_z);
+
+  r32 half_pix_w = 0.5f / image->width;
+  r32 half_pix_h = 0.5f / image->height;
+
   u32 rays_per_pixel = 16;
-    u32 *out = pixels;
-    for (uint y = 0; 
-         y < image->height;
-         ++y)
+  for (u32 y = y_min; 
+      y < one_past_y_max;
+      ++y)
+  {
+    u32 *out = get_pixel_pointer(image, x_min, y);
+
+    // for camera, z axis is looking from, x and y determine plane aperture 
+    r32 film_y = -1.0f + 2.0f * ((r32)y / (r32)image->height);
+    for (u32 x = x_min; 
+        x < one_past_x_max; 
+        ++x)
     {
-      // for camera, z axis is looking from, x and y determine plane aperture r32 film_y = -1.0f + 2.0f * ((r32)y / (r32)output_height);
-      for (uint x = 0; 
-           x < image->width; 
-           ++x)
+      r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)image->width);
+
+      V3 colour = {};
+      r32 contrib = 1.0f / (r32)rays_per_pixel;
+      for (u32 ray_index = 0;
+          ray_index < rays_per_pixel;
+          ++ray_index)
       {
-        r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)image->width);
+        // we can get some anti-aliasing here
+        r32 jitter_offx = film_x + random_bilateral() * half_pix_w;
+        r32 jitter_offy = film_y + random_bilateral() * half_pix_h;
 
-        V3 colour = {};
-        r32 contrib = 1.0f / (r32)rays_per_pixel;
-        for (u32 ray_index = 0;
-             ray_index < rays_per_pixel;
-             ++ray_index)
-        {
-          // we can get some anti-aliasing here
-          r32 jitter_offx = film_x + random_bilateral() * half_pix_w;
-          r32 jitter_offy = film_y + random_bilateral() * half_pix_h;
+        // need to do half width as from centre
+        V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
 
-          // need to do half width as from centre
-          V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
+        V3 ray_origin = camera_pos;
+        V3 ray_direction = vec_noz(film_p - camera_pos);
 
-          V3 ray_origin = camera_pos;
-          V3 ray_direction = vec_noz(film_p - camera_pos);
-          
-          // colour is a sum of a series of ray casts
-          colour += contrib * cast_ray(&world, ray_origin, ray_direction);
-        }
-
-        V4 bmp_srgb255 = { 
-          255.0f, 
-          255.0f * exact_linear1_to_srgb1(colour.r),
-          255.0f * exact_linear1_to_srgb1(colour.g),
-          255.0f * exact_linear1_to_srgb1(colour.b)
-        };
-
-        u32 bmp_value = pack_4x8(bmp_srgb255);
-        
-        *out++ = bmp_value;
-
-        //printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
+        // colour is a sum of a series of ray casts
+        colour += contrib * cast_ray(world, ray_origin, ray_direction);
       }
+
+      V4 bmp_srgb255 = { 
+        255.0f, 
+        255.0f * exact_linear1_to_srgb1(colour.r),
+        255.0f * exact_linear1_to_srgb1(colour.g),
+        255.0f * exact_linear1_to_srgb1(colour.b)
+      };
+
+      u32 bmp_value = pack_4x8(bmp_srgb255);
+
+      *out++ = bmp_value;
+
+      //printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
+    }
+  }
 }
 
 int
@@ -385,47 +428,25 @@ main(int argc, char *argv[])
   world.sphere_count = ARRAY_COUNT(spheres);
   world.spheres = spheres;
 
-  // right hand rule here to derive these?
-  /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
-   */
-  V3 camera_pos = {0, -10, 1};
-  // we are looking through -'z', i.e. opposite direction to what our camera z axis is
-  V3 camera_z = vec_noz(camera_pos);
-  // cross our z with universal z
-  V3 camera_x = vec_noz(vec_cross({0, 0, 1}, camera_z));
-  V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
 
-  ImageU32 image_u32 = create_image_u32(1280, 720);
-  if (image_u32.pixels != NULL)
+  ImageU32 image = create_image_u32(1280, 720);
+  if (image.pixels != NULL)
   {
-    r32 film_dist = 1.0f;
-    r32 film_w = 1.0f;
-    r32 film_h = 1.0f;
-    // aspect ratio correction
-    if (image.width > image.height)
-    {
-      film_h = film_w * ((r32)image.height / (r32)image.width);  
-    }
-    if (image.height > image.width)
-    {
-      film_w = film_h * ((r32)image.width / (r32)image.height);  
-    }
-    r32 half_film_w = 0.5f * film_w;
-    r32 half_film_h = 0.5f * film_h;
-    V3 film_centre = camera_pos - (film_dist * camera_z);
-
-    r32 half_pix_w = 0.5f / image.width;
-    r32 half_pix_h = 0.5f / image.height;
 
     clock_t start_clock = clock();
     clock_t end_clock;
+    
+    u32 core_count = 4;
+    // could just do (image.width + core_count - 1 / core_count) to ensure have enough?
+    u32 tile_width = round_r32_to_u32(image.width / core_count);
+    u32 tile_height = tile_width;
+    printf("Configuration: %d cores with %dx%d tiles\n", core_count, tile_width, tile_height);
 
-    u32 rays_per_pixel = 16;
-    // copied
+    render_tile(&world, &image, 0, 0, tile_width, tile_height);
 
     end_clock = clock();
 
-    write_image_u32_to_bmp(&image_u32, "output.bmp");
+    write_image_u32_to_bmp(&image, "output.bmp");
 
     clock_t time_elapsed_ms = (end_clock - start_clock) / 1000.0f;
     printf("Raycasting time: %lums\n", time_elapsed_ms);

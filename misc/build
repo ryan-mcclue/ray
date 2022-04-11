@@ -6,8 +6,7 @@ mkdir -p build
 
 # NOTE(Ryan): -fsanitize=thread, -fsanitize=address 
 ignored_warning_flags="-Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable
-  -Wno-unused-parameter -Wno-missing-field-initializers -Wno-write-strings
-  -Wno-unused-result"
+  -Wno-unused-parameter -Wno-missing-field-initializers -Wno-unused-result"
 
 #dev_type_flags="-O0 -g -ggdb3 -DRAY_SLOW -DRAY_INTERNAL"
 dev_type_flags="-O3 -DRAY_FAST -DRAY_EXTERNAL"
