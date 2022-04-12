@@ -138,7 +138,7 @@ random_bilateral(void)
 
 
 INTERNAL V3
-cast_ray(World *world, V3 ray_origin, V3 ray_direction)
+cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
 {
   u64 bounces_computed = 0;
 
@@ -155,7 +155,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
        bounce_count < 8;
        ++bounce_count)
   {
-    ++world->bounces_computed;
+    ++queue->bounces_computed;
 
     // closest hit
     r32 hit_distance = R32_MAX;
@@ -263,7 +263,7 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
     }
   }
 
-  world->bounces_computed += bounces_computed;
+  queue->bounces_computed += bounces_computed;
 
   return result;
 }
@@ -279,7 +279,7 @@ get_pixel_pointer(ImageU32 *image, u32 x, u32 y)
 }
 
 INTERNAL void
-render_tile(World *world, ImageU32 *image, u32 x_min, u32 y_min, 
+render_tile(WorkQueue *queue, World *world, ImageU32 *image, u32 x_min, u32 y_min, 
             u32 one_past_x_max, u32 one_past_y_max)
 {
   // right hand rule here to derive these?
@@ -343,7 +343,7 @@ render_tile(World *world, ImageU32 *image, u32 x_min, u32 y_min,
         V3 ray_direction = vec_noz(film_p - camera_pos);
 
         // colour is a sum of a series of ray casts
-        colour += contrib * cast_ray(world, ray_origin, ray_direction);
+        colour += contrib * cast_ray(queue, world, ray_origin, ray_direction);
       }
 
       V4 bmp_srgb255 = { 
@@ -361,7 +361,7 @@ render_tile(World *world, ImageU32 *image, u32 x_min, u32 y_min,
     }
   }
   
-  world->tiles_retired_count++;
+  queue->tiles_retired_count++;
 }
 
 int
@@ -457,6 +457,11 @@ main(int argc, char *argv[])
     u32 tile_count_y = (image.height + tile_height - 1) / tile_height;
     u32 total_tile_count = tile_count_x * tile_count_y;
 
+    WorkQueue work_queue = {};
+    work_queue.work_order_count = total_tile_count;
+    work_queue.work_orders = (WorkOrder *)malloc(sizeof(WorkOrder) * work_queue.work_order_count);
+    WorkOrder *work_order = work_queue.work_orders;
+
     for (u32 tile_y = 0;
          tile_y < tile_count_y;
          ++tile_y)
@@ -479,10 +484,27 @@ main(int argc, char *argv[])
           max_x = image.width;
         }
 
-        render_tile(&world, &image, min_x, min_y, max_x, max_y);
-        printf("\rRaycasting %d%%    ", world.tiles_retired_count * 100 / total_tile_count);
+        work_order->world = &world;
+        work_order->image = &image;
+        work_order->x_min = min_x;
+        work_order->y_min = min_y; 
+        work_order->one_past_x_max = max_x; 
+        work_order->one_past_y_max = max_y;
+
+        work_order++;
       }
 
+    }
+
+    for (u32 work_order_index = 0;
+         work_order_index < work_queue.work_order_count;
+         ++work_order_index)
+    {
+      WorkOrder *order = &work_queue.work_orders[work_order_index];
+
+      render_tile(&work_queue, order->world, order->image, order->x_min, order->y_min, order->one_past_x_max, order->one_past_y_max);
+
+      printf("\rRaycasting %d%%    ", work_queue.tiles_retired_count * 100 / total_tile_count);
     }
 
     end_clock = clock();
@@ -491,10 +513,10 @@ main(int argc, char *argv[])
 
     clock_t time_elapsed_ms = (end_clock - start_clock) / 1000.0f;
     printf("Raycasting time: %lums\n", time_elapsed_ms);
-    printf("Bounces computed: %lu\n", world.bounces_computed);
+    printf("Bounces computed: %lu\n", work_queue.bounces_computed);
     // we want to generate a metric that is constant across runs so that we can ascertain if we have made performace improvements  
     // currently: 0.000054ms/bounce
-    printf("Performance: %fms/bounce\n", (r64)time_elapsed_ms / world.bounces_computed);
+    printf("Performance: %fms/bounce\n", (r64)time_elapsed_ms / work_queue.bounces_computed);
     printf("\nDone\n");
   }
 

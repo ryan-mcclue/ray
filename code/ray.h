@@ -61,12 +61,27 @@ struct World
 
   u32 sphere_count;
   Sphere *spheres;
+};
 
-  u64 bounces_computed;
-  u32 tiles_retired_count;
+struct WorkOrder
+{
+  World *world;
+  ImageU32 *image; 
+  u32 x_min;
+  u32 y_min; 
+  u32 one_past_x_max; 
+  u32 one_past_y_max;
 };
 
 struct WorkQueue
 {
-  
+  // these don't require volatile as won't ever be written to by separate threads (or read by?)
+  u32 work_order_count;
+  WorkOrder *work_orders;
+
+  volatile u32 next_work_order_index;
+  volatile u64 bounces_computed;
+  volatile u32 tiles_retired_count;
 };
+
+
