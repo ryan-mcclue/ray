@@ -136,6 +136,37 @@ random_bilateral(void)
 // this performs an automatic epsilon check
 //
 
+INTERNAL u64
+locked_add_and_return_previous_value(u64 volatile *previous, u64 add)
+{
+  u64 result = *previous;
+
+  *previous += add;  
+
+  return result;
+}
+
+// IMPORTANT(Ryan):
+// The Linux kernel sees threads and processes as the same, i.e. concurrent task structs
+// In userspace, a thread is a task that shares its memory space
+INTERNAL void
+create_thread(void *parameter)
+{
+  // windows create_thread defaults to 1M
+  u32 stack_size = MEGABYTES(1); 
+  char *stack = (char *)malloc(stack_size);
+  if (stack == NULL)
+  {
+    EBP();
+    return;
+  }
+
+  // NOTE(Ryan): Stack grows down
+  clone(child_func, stack + stack_size, CLONE_VM | SIGCHLD, buf);
+
+  // SIGCHLD allows us to use wait()
+
+}
 
 INTERNAL V3
 cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
@@ -263,7 +294,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
     }
   }
 
-  queue->bounces_computed += bounces_computed;
+  locked_add_and_return_previous_value(&queue->bounces_computed, bounces_computed);
 
   return result;
 }
@@ -279,9 +310,22 @@ get_pixel_pointer(ImageU32 *image, u32 x, u32 y)
 }
 
 INTERNAL void
-render_tile(WorkQueue *queue, World *world, ImageU32 *image, u32 x_min, u32 y_min, 
-            u32 one_past_x_max, u32 one_past_y_max)
+render_tile(WorkQueue *queue)
 {
+  u64 work_order_index = locked_add_and_return_previous_value(&queue->next_work_order_index, 1);
+  if (work_order_index >= queue->work_order_count)
+  {
+    return;
+  }
+
+  WorkOrder *order = queue->work_orders + work_order_index;
+  World *world = order->world; 
+  ImageU32 *image = order->image;
+  u32 x_min = order->x_min;
+  u32 y_min = order->y_min;
+  u32 one_past_x_max = order->one_past_x_max; 
+  u32 one_past_y_max = order->one_past_y_max;
+
   // right hand rule here to derive these?
   /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
    */
@@ -361,7 +405,7 @@ render_tile(WorkQueue *queue, World *world, ImageU32 *image, u32 x_min, u32 y_mi
     }
   }
   
-  queue->tiles_retired_count++;
+  locked_add_and_return_previous_value(&queue->tiles_retired_count, 1);
 }
 
 int
@@ -449,13 +493,13 @@ main(int argc, char *argv[])
     u32 tile_width = image.width / core_count;
     u32 tile_height = tile_width;
 
-    // from k/tile we can say if it will fit into L1 cache
-    printf("Configuration: %d cores with %dx%d (%ldk/tile) tiles\n", 
-        core_count, tile_width, tile_height, tile_width * tile_height * sizeof(u32) / 1024);
-
     u32 tile_count_x = (image.width + tile_width - 1) / tile_width;
     u32 tile_count_y = (image.height + tile_height - 1) / tile_height;
     u32 total_tile_count = tile_count_x * tile_count_y;
+
+    // from k/tile we can say if it will fit into L1 cache
+    printf("Configuration: %d cores with %d tiles, %dx%d (%ldk/tile) tiles\n", 
+        core_count, total_tile_count, tile_width, tile_height, tile_width * tile_height * sizeof(u32) / 1024);
 
     WorkQueue work_queue = {};
     work_queue.work_order_count = total_tile_count;
@@ -496,15 +540,22 @@ main(int argc, char *argv[])
 
     }
 
-    for (u32 work_order_index = 0;
-         work_order_index < work_queue.work_order_count;
-         ++work_order_index)
+    // IMPORTANT(Ryan): Although not strictly necessary as quite sure linux creating threads will fence itself,
+    // do this to create a memory fence (ensure core 0 flushes its values for other cores)
+    locked_add_and_return_previous_value(&work_queue.next_work_order_index, 0);
+
+    for (u32 core_index = 1;
+         core_index < core_count;
+         ++core_index)
     {
-      WorkOrder *order = &work_queue.work_orders[work_order_index];
+      create_thread(&work_queue);
+    }
 
-      render_tile(&work_queue, order->world, order->image, order->x_min, order->y_min, order->one_past_x_max, order->one_past_y_max);
+    while (work_queue.tiles_retired_count < total_tile_count)
+    {
+      render_tile(&work_queue);
 
-      printf("\rRaycasting %d%%    ", work_queue.tiles_retired_count * 100 / total_tile_count);
+      printf("\rRaycasting %d%%    ", (u32)work_queue.tiles_retired_count * 100 / total_tile_count);
     }
 
     end_clock = clock();

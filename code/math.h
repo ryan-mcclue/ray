@@ -12,6 +12,11 @@
 #define R32_MAX FLT_MAX
 #define R32_MIN -FLT_MAX
 
+#define KILOBYTES(x) ((x) * 1024UL)
+#define MEGABYTES(x) (KILOBYTES(x) * 1024UL)
+#define GIGABYTES(x) (GIGABYTES(x) * 1024UL)
+#define TERABYTES(x) (TERABYTES(x) * 1024UL)
+
 INTERNAL r32
 square_root(r32 val)
 {

@@ -79,9 +79,7 @@ struct WorkQueue
   u32 work_order_count;
   WorkOrder *work_orders;
 
-  volatile u32 next_work_order_index;
+  volatile u64 next_work_order_index;
   volatile u64 bounces_computed;
-  volatile u32 tiles_retired_count;
+  volatile u64 tiles_retired_count;
 };
-
-
