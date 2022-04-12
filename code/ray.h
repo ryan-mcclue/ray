@@ -63,4 +63,10 @@ struct World
   Sphere *spheres;
 
   u64 bounces_computed;
+  u32 tiles_retired_count;
+};
+
+struct WorkQueue
+{
+  
 };

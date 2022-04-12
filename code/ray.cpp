@@ -140,6 +140,8 @@ random_bilateral(void)
 INTERNAL V3
 cast_ray(World *world, V3 ray_origin, V3 ray_direction)
 {
+  u64 bounces_computed = 0;
+
   V3 result = {};
   // starts as 1 as we have not attenuated the light at all
   // i.e. when we initially cast a ray, there is no light absorption at all
@@ -261,6 +263,8 @@ cast_ray(World *world, V3 ray_origin, V3 ray_direction)
     }
   }
 
+  world->bounces_computed += bounces_computed;
+
   return result;
 }
 
@@ -356,6 +360,8 @@ render_tile(World *world, ImageU32 *image, u32 x_min, u32 y_min,
       //printf("\rRaycasting %d%%...    ", (y * 100 / output_height));
     }
   }
+  
+  world->tiles_retired_count++;
 }
 
 int
@@ -449,6 +455,7 @@ main(int argc, char *argv[])
 
     u32 tile_count_x = (image.width + tile_width - 1) / tile_width;
     u32 tile_count_y = (image.height + tile_height - 1) / tile_height;
+    u32 total_tile_count = tile_count_x * tile_count_y;
 
     for (u32 tile_y = 0;
          tile_y < tile_count_y;
@@ -473,7 +480,9 @@ main(int argc, char *argv[])
         }
 
         render_tile(&world, &image, min_x, min_y, max_x, max_y);
+        printf("\rRaycasting %d%%    ", world.tiles_retired_count * 100 / total_tile_count);
       }
+
     }
 
     end_clock = clock();
