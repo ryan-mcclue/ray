@@ -436,13 +436,45 @@ main(int argc, char *argv[])
     clock_t start_clock = clock();
     clock_t end_clock;
     
-    u32 core_count = 4;
-    // could just do (image.width + core_count - 1 / core_count) to ensure have enough?
-    u32 tile_width = round_r32_to_u32(image.width / core_count);
-    u32 tile_height = tile_width;
-    printf("Configuration: %d cores with %dx%d tiles\n", core_count, tile_width, tile_height);
+    u32 core_count = 4; // logical cores
 
-    render_tile(&world, &image, 0, 0, tile_width, tile_height);
+    // for an uneven divisor, we want too many, not too few
+    // i.e. want to always be able to get to the end of a row
+    u32 tile_width = image.width / core_count;
+    u32 tile_height = tile_width;
+
+    // from k/tile we can say if it will fit into L1 cache
+    printf("Configuration: %d cores with %dx%d (%ldk/tile) tiles\n", 
+        core_count, tile_width, tile_height, tile_width * tile_height * sizeof(u32) / 1024);
+
+    u32 tile_count_x = (image.width + tile_width - 1) / tile_width;
+    u32 tile_count_y = (image.height + tile_height - 1) / tile_height;
+
+    for (u32 tile_y = 0;
+         tile_y < tile_count_y;
+         ++tile_y)
+    {
+      u32 min_y = tile_y * tile_height;
+      u32 max_y = min_y + tile_height;
+      if (max_y > image.height)
+      {
+        max_y = image.height;
+      }
+
+      for (u32 tile_x = 0;
+          tile_x < tile_count_x;
+          ++tile_x)
+      {
+        u32 min_x = tile_x * tile_width;
+        u32 max_x = min_x + tile_width;
+        if (max_x > image.width)
+        {
+          max_x = image.width;
+        }
+
+        render_tile(&world, &image, min_x, min_y, max_x, max_y);
+      }
+    }
 
     end_clock = clock();
 
