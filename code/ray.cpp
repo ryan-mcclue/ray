@@ -309,16 +309,16 @@ render_tile(World *world, ImageU32 *image, u32 x_min, u32 y_min,
 
   u32 rays_per_pixel = 16;
   for (u32 y = y_min; 
-      y < one_past_y_max;
-      ++y)
+       y < one_past_y_max;
+       ++y)
   {
     u32 *out = get_pixel_pointer(image, x_min, y);
 
     // for camera, z axis is looking from, x and y determine plane aperture 
     r32 film_y = -1.0f + 2.0f * ((r32)y / (r32)image->height);
     for (u32 x = x_min; 
-        x < one_past_x_max; 
-        ++x)
+         x < one_past_x_max; 
+         ++x)
     {
       r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)image->width);
 
