@@ -71,6 +71,8 @@ struct WorkOrder
   u32 y_min; 
   u32 one_past_x_max; 
   u32 one_past_y_max;
+
+  u32 entropy;
 };
 
 struct WorkQueue

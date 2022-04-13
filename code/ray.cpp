@@ -126,25 +126,39 @@ get_wall_clock(void)
   return result;
 }
 
-INTERNAL r32
-random_unilateral(void)
+// TODO(Ryan): This isn't as 'random' as rand() (so will introduce artifacts, i.e. see noticeable tile outline), however much more efficient
+// state is seed
+INTERNAL u32
+xor_shift_u32(u32 *random_series)
 {
-  LOCAL_PERSIST u32 seed = time(NULL);
+	/* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
+	u32 x = *random_series;
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+  *random_series = x;
 
+	return x;
+}
+
+INTERNAL r32
+random_unilateral(u32 *random_series)
+{
   r32 result = 0.0f;
 
-  // rand() implements mutexes so each thread has to run serially
-  result = (r32)rand_r(&seed) / (r32)RAND_MAX;
+  // rand() implements mutexes so each thread has to run serially, use rand_r()
+  
+  result = (r32)xor_shift_u32(random_series) / (r32)U32_MAX;
 
   return result;
 }
 
 INTERNAL r32
-random_bilateral(void)
+random_bilateral(u32 *random_series)
 {
   r32 result = 0.0f;
 
-  result = -1.0f + 2.0f * random_unilateral();
+  result = -1.0f + 2.0f * random_unilateral(random_series);
 
   return result;
 }
@@ -167,7 +181,7 @@ locked_add_and_return_previous_value(u64 volatile *previous, u64 add)
 
 
 INTERNAL V3
-cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
+cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *random_series)
 {
   u64 bounces_computed = 0;
 
@@ -277,7 +291,9 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
       ray_origin = next_origin;
       // basic reflection here
       V3 pure_bounce = ray_direction - 2.0f * vec_dot(ray_direction, next_normal) * next_normal;
-      V3 random_bounce = vec_noz(next_normal + v3(random_bilateral(), random_bilateral(), random_bilateral()));
+      V3 random_bounce = vec_noz(next_normal + v3(random_bilateral(random_series), 
+                                                  random_bilateral(random_series), 
+                                                  random_bilateral(random_series)));
       ray_direction = vec_noz(lerp(random_bounce, pure_bounce, hit_material.scatter));
 
       // black dots are if reflected and never hit sky
@@ -325,6 +341,8 @@ render_tile(WorkQueue *queue)
   u32 one_past_x_max = order->one_past_x_max; 
   u32 one_past_y_max = order->one_past_y_max;
 
+  u32 *random_series = &order->entropy;
+
   // right hand rule here to derive these?
   /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
    */
@@ -354,6 +372,7 @@ render_tile(WorkQueue *queue)
   r32 half_pix_w = 0.5f / image->width;
   r32 half_pix_h = 0.5f / image->height;
 
+
   u32 rays_per_pixel = queue->rays_per_pixel;
   for (u32 y = y_min; 
        y < one_past_y_max;
@@ -369,15 +388,20 @@ render_tile(WorkQueue *queue)
     {
       r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)image->width);
 
+      u32 lane_width = 4;
+      // this is how many loops are now required
+      u32 lane_ray_count = (rays_per_pixel / lane_width);
+
       V3 colour = {};
-      r32 contrib = 1.0f / (r32)rays_per_pixel;
+      r32 contrib = 1.0f / (r32)lane_ray_count;
+      // move this loop into a function cast_sample_rays()
       for (u32 ray_index = 0;
-          ray_index < rays_per_pixel;
+          ray_index < lane_ray_count;
           ++ray_index)
       {
         // we can get some anti-aliasing here
-        r32 jitter_offx = film_x + random_bilateral() * half_pix_w;
-        r32 jitter_offy = film_y + random_bilateral() * half_pix_h;
+        r32 jitter_offx = film_x + random_bilateral(random_series) * half_pix_w;
+        r32 jitter_offy = film_y + random_bilateral(random_series) * half_pix_h;
 
         // need to do half width as from centre
         V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
@@ -386,7 +410,7 @@ render_tile(WorkQueue *queue)
         V3 ray_direction = vec_noz(film_p - camera_pos);
 
         // colour is a sum of a series of ray casts
-        colour += contrib * cast_ray(queue, world, ray_origin, ray_direction);
+        colour += contrib * cast_ray(queue, world, ray_origin, ray_direction, random_series);
       }
 
       V4 bmp_srgb255 = { 
@@ -566,8 +590,9 @@ main(int argc, char *argv[])
         core_count, total_tile_count, tile_width, tile_height, tile_width * tile_height * sizeof(u32) / 1024);
 
     WorkQueue work_queue = {};
+    work_queue.work_order_count = total_tile_count;
     work_queue.max_bounce_count = 8;
-    work_queue.rays_per_pixel = 32;
+    work_queue.rays_per_pixel = 128;
     work_queue.work_orders = (WorkOrder *)malloc(sizeof(WorkOrder) * work_queue.work_order_count);
     WorkOrder *work_order = work_queue.work_orders;
 
@@ -599,6 +624,9 @@ main(int argc, char *argv[])
         work_order->y_min = min_y; 
         work_order->one_past_x_max = max_x; 
         work_order->one_past_y_max = max_y;
+
+        // TODO(Ryan): Replace with real entropy!
+        work_order->entropy = tile_x * 12302 + tile_y * 1234;
 
         work_order++;
       }
