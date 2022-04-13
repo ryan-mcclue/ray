@@ -7,6 +7,9 @@
 #include <stdint.h>
 #include <time.h>
 
+#include <sched.h>
+#include <sys/sysinfo.h>
+
 #define INTERNAL      static
 #define GLOBAL        static
 #define LOCAL_PERSIST static
@@ -112,9 +115,12 @@ write_image_u32_to_bmp(ImageU32 *image, char const *file_name)
 INTERNAL r32
 random_unilateral(void)
 {
+  LOCAL_PERSIST u32 seed = time(NULL);
+
   r32 result = 0.0f;
 
-  result = (r32)rand() / (r32)RAND_MAX;
+  // rand() implements mutexes so each thread has to run serially
+  result = (r32)rand_r(&seed) / (r32)RAND_MAX;
 
   return result;
 }
@@ -139,34 +145,12 @@ random_bilateral(void)
 INTERNAL u64
 locked_add_and_return_previous_value(u64 volatile *previous, u64 add)
 {
-  u64 result = *previous;
-
-  *previous += add;  
+  // for msdn interlocked, gcc will be __sync_*
+  u64 result = __sync_fetch_and_add(previous, add);
 
   return result;
 }
 
-// IMPORTANT(Ryan):
-// The Linux kernel sees threads and processes as the same, i.e. concurrent task structs
-// In userspace, a thread is a task that shares its memory space
-INTERNAL void
-create_thread(void *parameter)
-{
-  // windows create_thread defaults to 1M
-  u32 stack_size = MEGABYTES(1); 
-  char *stack = (char *)malloc(stack_size);
-  if (stack == NULL)
-  {
-    EBP();
-    return;
-  }
-
-  // NOTE(Ryan): Stack grows down
-  clone(child_func, stack + stack_size, CLONE_VM | SIGCHLD, buf);
-
-  // SIGCHLD allows us to use wait()
-
-}
 
 INTERNAL V3
 cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
@@ -186,7 +170,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
        bounce_count < 8;
        ++bounce_count)
   {
-    ++queue->bounces_computed;
+    bounces_computed++;
 
     // closest hit
     r32 hit_distance = R32_MAX;
@@ -309,13 +293,13 @@ get_pixel_pointer(ImageU32 *image, u32 x, u32 y)
   return result;
 }
 
-INTERNAL void
+INTERNAL b32
 render_tile(WorkQueue *queue)
 {
   u64 work_order_index = locked_add_and_return_previous_value(&queue->next_work_order_index, 1);
   if (work_order_index >= queue->work_order_count)
   {
-    return;
+    return false;
   }
 
   WorkOrder *order = queue->work_orders + work_order_index;
@@ -355,7 +339,7 @@ render_tile(WorkQueue *queue)
   r32 half_pix_w = 0.5f / image->width;
   r32 half_pix_h = 0.5f / image->height;
 
-  u32 rays_per_pixel = 16;
+  u32 rays_per_pixel = 256;
   for (u32 y = y_min; 
        y < one_past_y_max;
        ++y)
@@ -406,6 +390,67 @@ render_tile(WorkQueue *queue)
   }
   
   locked_add_and_return_previous_value(&queue->tiles_retired_count, 1);
+
+  return true;
+}
+
+INTERNAL int
+worker_thread(void *arg)
+{
+  WorkQueue *work_queue = (WorkQueue *)arg;
+  // keep calling if there is work to be done
+  while (render_tile(work_queue)) {}
+
+  return 0;
+}
+
+// IMPORTANT(Ryan):
+// The Linux kernel sees threads and processes as the same, i.e. concurrent task structs
+// In userspace, a thread is a task that shares its memory space
+//
+// cpu atomic instructions ensure that you have exclusive access to a variable, i.e. read and write to it with no other interference
+// mutexes are programming constructs built on top of this to create locks to ensure some code waits before another executes. say, atomic add it to 1 to indicate code should wait.
+INTERNAL void
+create_thread(void *parameter)
+{
+#if 1
+  // windows create_thread defaults to 1M
+  u32 stack_size = MEGABYTES(1); 
+  char *stack = (char *)malloc(stack_size);
+  if (stack == NULL)
+  {
+    EBP();
+    return;
+  }
+
+  // NOTE(Ryan): Stack grows down
+  // passing SIGCHLD as a flag would allow us to use wait()
+  //int clone_flags = (0 | CLONE_VM | 
+  //                   CLONE_FS | 
+  //                   CLONE_FILES | 
+  //                   CLONE_SYSVSEM | 
+  //                   CLONE_SIGHAND | 
+  //                   CLONE_PARENT_SETTID | 
+  //                   CLONE_CHILD_CLEARTID |
+  //                   CLONE_THREAD ); 
+  //                   //CLONE_SETTLS | 
+
+  // only see 1.6x speed up? 
+  int thread_id = clone(worker_thread, stack + stack_size, CLONE_VM, parameter);
+  if (thread_id == -1)
+  {
+    EBP();
+    return;
+  }
+#else
+  pthread_attr_t attr;
+  pthread_t tid;
+  pthread_attr_init(&attr);
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+  int result = pthread_create(&tid, &attr, worker_thread, parameter);
+  pthread_attr_destroy(&attr);
+#endif
+
 }
 
 int
@@ -486,7 +531,9 @@ main(int argc, char *argv[])
     clock_t start_clock = clock();
     clock_t end_clock;
     
-    u32 core_count = 4; // logical cores
+    u32 core_count = (u32)get_nprocs(); // logical cores
+    // increasing the number to 16, 32, 64, 128 keep increasing speed?
+    //u32 core_count = 256; // logical cores
 
     // for an uneven divisor, we want too many, not too few
     // i.e. want to always be able to get to the end of a row
@@ -544,30 +591,38 @@ main(int argc, char *argv[])
     // do this to create a memory fence (ensure core 0 flushes its values for other cores)
     locked_add_and_return_previous_value(&work_queue.next_work_order_index, 0);
 
+#if 1
     for (u32 core_index = 1;
          core_index < core_count;
          ++core_index)
     {
       create_thread(&work_queue);
     }
+#endif
 
     while (work_queue.tiles_retired_count < total_tile_count)
     {
-      render_tile(&work_queue);
-
-      printf("\rRaycasting %d%%    ", (u32)work_queue.tiles_retired_count * 100 / total_tile_count);
+      if (render_tile(&work_queue))
+      {
+        // only show if we render it, to reduce output
+        printf("\rRaycasting %d%%    ", (u32)work_queue.tiles_retired_count * 100 / total_tile_count);
+      }
     }
 
     end_clock = clock();
+    clock_t time_elapsed = end_clock - start_clock;
 
-    write_image_u32_to_bmp(&image, "output.bmp");
-
-    clock_t time_elapsed_ms = (end_clock - start_clock) / 1000.0f;
-    printf("Raycasting time: %lums\n", time_elapsed_ms);
+    r64 time_elapsed_ms = 1000.0 * (r64)time_elapsed / (CLOCKS_PER_SEC * core_count);
+    // r64 time_elapsed_ms = 1000.0 * (r64)time_elapsed / (CLOCKS_PER_SEC);
+    printf("\n");
+    printf("Raycasting time: %fms\n", time_elapsed_ms);
     printf("Bounces computed: %lu\n", work_queue.bounces_computed);
     // we want to generate a metric that is constant across runs so that we can ascertain if we have made performace improvements  
     // currently: 0.000054ms/bounce
     printf("Performance: %fms/bounce\n", (r64)time_elapsed_ms / work_queue.bounces_computed);
+
+    write_image_u32_to_bmp(&image, "output.bmp");
+
     printf("\nDone\n");
   }
 
