@@ -23,6 +23,10 @@ g++ $common_compiler_flags $dev_type_flags \
   code/ray.cpp -o build/ray \
   $libraries
 
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
 ctime -end misc/ray.ctm
 
 pushd run >/dev/null

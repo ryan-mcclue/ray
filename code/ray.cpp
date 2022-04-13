@@ -112,6 +112,20 @@ write_image_u32_to_bmp(ImageU32 *image, char const *file_name)
   }
 }
 
+INTERNAL u64
+get_wall_clock(void)
+{
+  u64 result = 0;
+
+  struct timespec time_spec = {};
+
+  clock_gettime(CLOCK_MONOTONIC_RAW, &time_spec);
+
+  result = time_spec.tv_sec * 1000 + time_spec.tv_nsec / 1000000;
+
+  return result;
+}
+
 INTERNAL r32
 random_unilateral(void)
 {
@@ -166,8 +180,9 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction)
   // NOTE(Ryan): Ad-hoc value
   r32 tolerance = 0.0001f;
 
+  u32 max_bounce_count = queue->max_bounce_count;
   for (u32 bounce_count = 0;
-       bounce_count < 8;
+       bounce_count < max_bounce_count;
        ++bounce_count)
   {
     bounces_computed++;
@@ -339,7 +354,7 @@ render_tile(WorkQueue *queue)
   r32 half_pix_w = 0.5f / image->width;
   r32 half_pix_h = 0.5f / image->height;
 
-  u32 rays_per_pixel = 256;
+  u32 rays_per_pixel = queue->rays_per_pixel;
   for (u32 y = y_min; 
        y < one_past_y_max;
        ++y)
@@ -528,17 +543,19 @@ main(int argc, char *argv[])
   if (image.pixels != NULL)
   {
 
-    clock_t start_clock = clock();
-    clock_t end_clock;
+    u64 start_clock = get_wall_clock();
+    u64 end_clock;
     
     u32 core_count = (u32)get_nprocs(); // logical cores
     // increasing the number to 16, 32, 64, 128 keep increasing speed?
-    //u32 core_count = 256; // logical cores
+    //u32 core_count = 16 // logical cores
 
     // for an uneven divisor, we want too many, not too few
     // i.e. want to always be able to get to the end of a row
     u32 tile_width = image.width / core_count;
     u32 tile_height = tile_width;
+
+    //tile_width = tile_height = 64;
 
     u32 tile_count_x = (image.width + tile_width - 1) / tile_width;
     u32 tile_count_y = (image.height + tile_height - 1) / tile_height;
@@ -549,7 +566,8 @@ main(int argc, char *argv[])
         core_count, total_tile_count, tile_width, tile_height, tile_width * tile_height * sizeof(u32) / 1024);
 
     WorkQueue work_queue = {};
-    work_queue.work_order_count = total_tile_count;
+    work_queue.max_bounce_count = 8;
+    work_queue.rays_per_pixel = 32;
     work_queue.work_orders = (WorkOrder *)malloc(sizeof(WorkOrder) * work_queue.work_order_count);
     WorkOrder *work_order = work_queue.work_orders;
 
@@ -606,16 +624,18 @@ main(int argc, char *argv[])
       {
         // only show if we render it, to reduce output
         printf("\rRaycasting %d%%    ", (u32)work_queue.tiles_retired_count * 100 / total_tile_count);
+        fflush(stdout);
       }
     }
 
-    end_clock = clock();
-    clock_t time_elapsed = end_clock - start_clock;
+    end_clock = get_wall_clock();
+    u64 time_elapsed_ms = end_clock - start_clock;
 
-    r64 time_elapsed_ms = 1000.0 * (r64)time_elapsed / (CLOCKS_PER_SEC * core_count);
+    // this time is still wrong?
+    //r64 time_elapsed_ms = 1000.0 * (r64)time_elapsed / (CLOCKS_PER_SEC * core_count);
     // r64 time_elapsed_ms = 1000.0 * (r64)time_elapsed / (CLOCKS_PER_SEC);
     printf("\n");
-    printf("Raycasting time: %fms\n", time_elapsed_ms);
+    printf("Raycasting time: %ldms\n", time_elapsed_ms);
     printf("Bounces computed: %lu\n", work_queue.bounces_computed);
     // we want to generate a metric that is constant across runs so that we can ascertain if we have made performace improvements  
     // currently: 0.000054ms/bounce

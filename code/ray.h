@@ -79,6 +79,9 @@ struct WorkQueue
   u32 work_order_count;
   WorkOrder *work_orders;
 
+  u32 max_bounce_count;
+  u32 rays_per_pixel;
+
   volatile u64 next_work_order_index;
   volatile u64 bounces_computed;
   volatile u64 tiles_retired_count;
