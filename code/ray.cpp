@@ -185,10 +185,10 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
 {
   u64 bounces_computed = 0;
 
-  V3 result = {};
+  lane_V3 result = {};
   // starts as 1 as we have not attenuated the light at all
   // i.e. when we initially cast a ray, there is no light absorption at all
-  V3 attenuation = {1, 1, 1};
+  lane_V3 attenuation = {1, 1, 1};
 
   r32 min_hit_distance = 0.001f; // as oppose to using 0?
   // NOTE(Ryan): Ad-hoc value
@@ -199,39 +199,43 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
        bounce_count < max_bounce_count;
        ++bounce_count)
   {
-    bounces_computed++;
+    // TODO(Ryan): Have to ensure certain lane is active to count properly!
+    bounces_computed++; 
 
     // closest hit
-    r32 hit_distance = R32_MAX;
+    lane_r32 hit_distance = R32_MAX;
 
     // this is the sky material index, i.e. emitter of light
-    u32 hit_material_index = 0;
-    V3 next_origin = {};
-    V3 next_normal = {};
+    lane_u32 hit_material_index = 0;
+    lane_V3 next_origin = {};
+    lane_V3 next_normal = {};
 
     for (u32 plane_index = 0;
         plane_index < world->plane_count;
         ++plane_index)
     {
+      // IMPORTANT(Ryan): Copy out value required into lane form
       Plane plane = world->planes[plane_index];
+
+      lane_v3 plane_normal = plane.normal;
+      lane_v3 plane_distance = plane.distance;
+      lane_v3 plane_material_index = plane.material_index;
 
       // for ray line: ray_origin + scale_factor·ray_direction
       // substitute this in for point in plane equation and solve for scale_factor (in this case 't')
       // (in this sense, is it more appropriate to say check for intersection?)
-      r32 denom = vec_dot(plane.normal, ray_direction);
-      // zero if perpendicular to normal, a.k.a will never intersect plane
-      if (denom < -tolerance || denom > tolerance)
-      {
-        r32 t = (-plane.distance - vec_dot(plane.normal, ray_origin)) / denom;
-        if (t > min_hit_distance && t < hit_distance)
-        {
-          hit_distance = t;
-          hit_material_index = plane.material_index;
-          next_origin = ray_origin + t * ray_direction;
-          next_normal = plane.normal;
-        }
-      }
+      lane_r32 denom = vec_dot(plane_normal, ray_direction);
+      lane_r32 t = (-plane_distance - vec_dot(plane_normal, ray_origin)) / denom;
 
+      // zero if perpendicular to normal, a.k.a will never intersect plane
+      lane_u32 denom_mask = (denom < -tolerance || denom > tolerance);
+      lane_u32 t_mask = (t > min_hit_distance && t < hit_distance);
+      lane_u32 hit_mask = denom_mask & t_mask;
+
+      conditional_assign(&hit_distance, hit_mask, t);
+      conditional_assign(&hit_material_index, hit_mask, plane_material_index);
+      conditional_assign(&next_origin, hit_mask, ray_origin + t * ray_direction);
+      conditional_assign(&next_normal, hit_mask, plane_normal);
     }
 
     for (u32 sphere_index = 0;
@@ -400,14 +404,13 @@ render_tile(WorkQueue *queue)
           ++ray_index)
       {
         // we can get some anti-aliasing here
-        r32 jitter_offx = film_x + random_bilateral(random_series) * half_pix_w;
-        r32 jitter_offy = film_y + random_bilateral(random_series) * half_pix_h;
+        lane_r32 jitter_offx = film_x + random_bilateral(random_series) * half_pix_w;
+        lane_r32 jitter_offy = film_y + random_bilateral(random_series) * half_pix_h;
 
         // need to do half width as from centre
-        V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
-
-        V3 ray_origin = camera_pos;
-        V3 ray_direction = vec_noz(film_p - camera_pos);
+        lane_V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
+        lane_V3 ray_origin = camera_pos;
+        lane_V3 ray_direction = vec_noz(film_p - camera_pos);
 
         // colour is a sum of a series of ray casts
         colour += contrib * cast_ray(queue, world, ray_origin, ray_direction, random_series);
