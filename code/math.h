@@ -12,7 +12,6 @@
 #define R32_MAX FLT_MAX
 #define R32_MIN -FLT_MAX
 #define U32_MAX UINT32_MAX
-#define U32_MIN -UINT32_MAX
 
 #define KILOBYTES(x) ((x) * 1024UL)
 #define MEGABYTES(x) (KILOBYTES(x) * 1024UL)

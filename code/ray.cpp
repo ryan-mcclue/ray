@@ -185,30 +185,35 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
 {
   u64 bounces_computed = 0;
 
-  lane_V3 result = {};
+  lane_v3 result = {};
   // starts as 1 as we have not attenuated the light at all
   // i.e. when we initially cast a ray, there is no light absorption at all
-  lane_V3 attenuation = {1, 1, 1};
+  lane_v3 attenuation = {1, 1, 1};
 
-  r32 min_hit_distance = 0.001f; // as oppose to using 0?
+  lane_r32 min_hit_distance = 0.001f; // as oppose to using 0?
   // NOTE(Ryan): Ad-hoc value
-  r32 tolerance = 0.0001f;
+  lane_r32 tolerance = 0.0001f;
+
+  lane_u32 bounces_computed = 0;
+  lane_u32 lane_increment = 1;
+  // this is active lane?
+  lane_u32 lane_mask = U32_MAX;
 
   u32 max_bounce_count = queue->max_bounce_count;
   for (u32 bounce_count = 0;
        bounce_count < max_bounce_count;
        ++bounce_count)
   {
-    // TODO(Ryan): Have to ensure certain lane is active to count properly!
-    bounces_computed++; 
+    // IMPORTANT(Ryan): As some items/rays in the lane may have terminated we cannot simply increment with ++
+    bounces_computed += lane_increment; 
 
     // closest hit
     lane_r32 hit_distance = R32_MAX;
 
     // this is the sky material index, i.e. emitter of light
     lane_u32 hit_material_index = 0;
-    lane_V3 next_origin = {};
-    lane_V3 next_normal = {};
+    lane_v3 next_origin = {};
+    lane_v3 next_normal = {};
 
     for (u32 plane_index = 0;
         plane_index < world->plane_count;
@@ -244,39 +249,41 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
     {
       Sphere sphere = world->spheres[sphere_index];
 
+      lane_u32 sphere_material_index = sphere.material_index;
+
+      lane_v3 sphere_p = sphere.position;
+      lane_r32 sphere_r = sphere.radius;
+
       // to account for the sphere's origin
-      V3 sphere_relative_ray_origin = ray_origin - sphere.position;
+      lane_v3 sphere_relative_ray_origin = ray_origin - sphere_p;
 
       // for sphere: x² + y² + z² - r² = 0
       // we see that this contains the dot product of itself: pᵗp - r² = 0
       // substituting ray line equation we get a quadratic equation in terms of t
       // so, use quadratic formula to solve
-      r32 a = vec_dot(ray_direction, ray_direction);
-      r32 b = 2 * vec_dot(ray_direction, sphere_relative_ray_origin);
-      r32 c = vec_dot(sphere_relative_ray_origin, sphere_relative_ray_origin) - (sphere.radius * sphere.radius);
+      lane_r32 a = vec_dot(ray_direction, ray_direction);
+      lane_r32 b = 2 * vec_dot(ray_direction, sphere_relative_ray_origin);
+      lane_r32 c = vec_dot(sphere_relative_ray_origin, sphere_relative_ray_origin) - (sphere_r * sphere_r);
 
-      r32 denom = 2 * a;
-      r32 root_term = square_root(b * b - 4.0f * a * c);
-      if (root_term > tolerance)
-      {
-        r32 t_pos = (-b + root_term) / denom;
-        r32 t_neg = (-b - root_term) / denom;
+      lane_r32 denom = 2 * a;
+      lane_r32 root_term = square_root(b * b - 4.0f * a * c);
+      lane_u32 root_mask = (root_term > tolerance);
 
-        r32 t = t_pos;
-        // check if t_neg is a better hit
-        if (t_neg > min_hit_distance && t_neg < t_pos)
-        {
-          t = t_neg;
-        }
-        
-        if (t > min_hit_distance && t < hit_distance)
-        {
-          hit_distance = t;
-          hit_material_index = sphere.material_index;
-          next_origin = ray_origin + t * ray_direction;
-          next_normal = vec_noz(next_origin - sphere.position);
-        }
-      }
+      lane_r32 t_pos = (-b + root_term) / denom;
+      lane_r32 t_neg = (-b - root_term) / denom;
+
+      lane_r32 t = t_pos;
+      // check if t_neg is a better hit
+      lane_u32 pick_mask = (t_neg > min_hit_distance && t_neg < t_pos);
+      conditional_assign(&t, pick_mask, t_neg);
+      
+      lane_u32 t_mask = (t > min_hit_distance && t < hit_distance);
+      lane_u32 hit_mask = root_mask & t_mask;
+
+      conditional_assign(&hit_distance, hit_mask, t);
+      conditional_assign(&hit_material_index, hit_mask, sphere_material_index;
+      conditional_assign(&next_origin, hit_mask, ray_origin + t * ray_direction;
+      conditional_assign(&next_normal, hit_mask, vec_noz(next_origin - sphere_p);
     }
 
     if (hit_material_index > 0)
@@ -313,7 +320,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
     }
   }
 
-  locked_add_and_return_previous_value(&queue->bounces_computed, bounces_computed);
+  locked_add_and_return_previous_value(&queue->bounces_computed, horizontal_add(bounces_computed));
 
   return result;
 }
