@@ -118,8 +118,60 @@ union V2
   {
     r32 x, y;
   };
+  struct
+  {
+    r32 w, h;
+  };
   r32 e[2];
 };
+
+union V2u
+{
+  struct
+  {
+    u32 x, y;
+  };
+  struct
+  {
+    u32 w, h;
+  };
+  u32 e[2];
+};
+
+union V2s
+{
+  struct
+  {
+    s32 x, y;
+  };
+  struct
+  {
+    s32 w, h;
+  };
+  s32 e[2];
+};
+
+INTERNAL V2u
+v2u(u32 x, u32 y)
+{
+  V2u result = {};
+
+  result.x = x;
+  result.y = y;
+  
+  return result;
+}
+
+INTERNAL V2s
+v2s(s32 x, s32 y)
+{
+  V2s result = {};
+
+  result.x = x;
+  result.y = y;
+  
+  return result;
+}
 
 INTERNAL V2
 v2(r32 x, r32 y)
@@ -187,6 +239,14 @@ operator-(V2 vec1, V2 vec2)
   result.y = vec1.y - vec2.y;
 
   return result;
+}
+
+INTERNAL V2 &
+operator-=(V2 &vec1, V2 vec2)
+{
+  vec1 = vec1 - vec2;
+
+  return vec1;
 }
 
 INTERNAL V2

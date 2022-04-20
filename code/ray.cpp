@@ -230,8 +230,8 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
       Plane plane = world->planes[plane_index];
 
       lane_v3 plane_normal = plane.normal;
-      lane_v3 plane_distance = plane.distance;
-      lane_v3 plane_material_index = plane.material_index;
+      lane_r32 plane_distance = plane.distance;
+      lane_u32 plane_material_index = plane.material_index;
 
       // for ray line: ray_origin + scale_factor·ray_direction
       // substitute this in for point in plane equation and solve for scale_factor (in this case 't')
@@ -290,7 +290,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
       conditional_assign(&hit_distance, hit_mask, t);
       conditional_assign(&hit_material_index, hit_mask, sphere_material_index);
       conditional_assign(&next_origin, hit_mask, ray_origin + t * ray_direction);
-      conditional_assign(&next_normal, hit_mask, vec_noz(next_origin - sphere_p);
+      conditional_assign(&next_normal, hit_mask, vec_noz(next_origin - sphere_p));
     }
 
     // TODO(Ryan): How do we load these?
@@ -298,7 +298,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
 
     lane_v3 material_emitted_colour = hit_material.emitted_colour;
     lane_v3 material_reflected_colour = hit_material.reflected_colour;
-    lane_r32 material_scatter = ;
+    lane_r32 material_scatter = hit_material.scatter;
 
     result += vec_hadamard(attenuation, material_emitted_colour);
 
@@ -315,7 +315,6 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
           random_bilateral_lane(random_series)));
     ray_direction = vec_noz(lerp(random_bounce, pure_bounce, material_scatter));
 
-    // TODO(Ryan): This break won't work???
     if (mask_is_zeroed(lane_mask))
     {
       break;

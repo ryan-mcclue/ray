@@ -40,7 +40,7 @@ mask_is_zeroed(lane_u32 lane_mask)
 }
 
 INTERNAL r32
-horizontal_add(lane_f32 a)
+horizontal_add(lane_r32 a)
 {
   // IMPORTANT(Ryan): We are only doing this in one dimension for now
   return a;
