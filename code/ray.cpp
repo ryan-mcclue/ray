@@ -57,7 +57,6 @@ typedef u32          b32;
   #define ASSERT(cond)
 #endif
 
-#include "math.h"
 #include "ray.h"
 
 INTERNAL ImageU32
@@ -163,6 +162,16 @@ random_bilateral(u32 *random_series)
   return result;
 }
 
+INTERNAL lane_r32
+random_bilateral_lane(u32 *random_series)
+{
+  lane_r32 result = 0.0f;
+
+  result = -1.0f + 2.0f * random_unilateral(random_series);
+
+  return result;
+}
+
 // IEEE 754 is in essense a compression algorithm, i.e. compressing all numbers from negative to positive infinity to a finite space of bits
 // Therefore, 0.1 + 0.2 != 0.3 (0.300000004) as it can't represent 0.3
 // epsilon is an allowable error margin for floating point
@@ -183,8 +192,6 @@ locked_add_and_return_previous_value(u64 volatile *previous, u64 add)
 INTERNAL V3
 cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *random_series)
 {
-  u64 bounces_computed = 0;
-
   lane_v3 result = {};
   // starts as 1 as we have not attenuated the light at all
   // i.e. when we initially cast a ray, there is no light absorption at all
@@ -195,8 +202,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
   lane_r32 tolerance = 0.0001f;
 
   lane_u32 bounces_computed = 0;
-  lane_u32 lane_increment = 1;
-  // this is active lane?
+  // this tells us which lane is active or terminated
   lane_u32 lane_mask = U32_MAX;
 
   u32 max_bounce_count = queue->max_bounce_count;
@@ -205,7 +211,8 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
        ++bounce_count)
   {
     // IMPORTANT(Ryan): As some items/rays in the lane may have terminated we cannot simply increment with ++
-    bounces_computed += lane_increment; 
+    lane_u32 lane_increment = 1;
+    bounces_computed += (lane_increment & lane_mask); 
 
     // closest hit
     lane_r32 hit_distance = R32_MAX;
@@ -281,48 +288,46 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
       lane_u32 hit_mask = root_mask & t_mask;
 
       conditional_assign(&hit_distance, hit_mask, t);
-      conditional_assign(&hit_material_index, hit_mask, sphere_material_index;
-      conditional_assign(&next_origin, hit_mask, ray_origin + t * ray_direction;
+      conditional_assign(&hit_material_index, hit_mask, sphere_material_index);
+      conditional_assign(&next_origin, hit_mask, ray_origin + t * ray_direction);
       conditional_assign(&next_normal, hit_mask, vec_noz(next_origin - sphere_p);
     }
 
-    if (hit_material_index > 0)
+    // TODO(Ryan): How do we load these?
+    Material hit_material = world->materials[hit_material_index];
+
+    lane_v3 material_emitted_colour = hit_material.emitted_colour;
+    lane_v3 material_reflected_colour = hit_material.reflected_colour;
+    lane_r32 material_scatter = ;
+
+    result += vec_hadamard(attenuation, material_emitted_colour);
+
+    lane_mask = lane_mask & (hit_material_index == 0);
+
+    lane_r32 cos_attenuation = max(vec_dot(-ray_direction, next_normal), 0);
+    attenuation = vec_hadamard(attenuation, cos_attenuation * material_reflected_colour);
+
+    ray_origin = next_origin;
+    // basic reflection here
+    lane_v3 pure_bounce = ray_direction - 2.0f * vec_dot(ray_direction, next_normal) * next_normal;
+    lane_v3 random_bounce = vec_noz(next_normal + v3(random_bilateral_lane(random_series), 
+          random_bilateral_lane(random_series), 
+          random_bilateral_lane(random_series)));
+    ray_direction = vec_noz(lerp(random_bounce, pure_bounce, material_scatter));
+
+    // TODO(Ryan): This break won't work???
+    if (mask_is_zeroed(lane_mask))
     {
-      Material hit_material = world->materials[hit_material_index];
-
-      result += vec_hadamard(attenuation, hit_material.emitted_colour);
-
-      r32 cos_attenuation = 1.0f;
-#if 1
-      cos_attenuation = vec_dot(-ray_direction, next_normal);
-      if (cos_attenuation < 0) cos_attenuation = 0.0f;
-#endif
-      attenuation = vec_hadamard(attenuation, cos_attenuation * hit_material.reflected_colour);
-
-      ray_origin = next_origin;
-      // basic reflection here
-      V3 pure_bounce = ray_direction - 2.0f * vec_dot(ray_direction, next_normal) * next_normal;
-      V3 random_bounce = vec_noz(next_normal + v3(random_bilateral(random_series), 
-                                                  random_bilateral(random_series), 
-                                                  random_bilateral(random_series)));
-      ray_direction = vec_noz(lerp(random_bounce, pure_bounce, hit_material.scatter));
-
-      // black dots are if reflected and never hit sky
-      // could also be black say if purely red object attenuates the ray such that it does not reflect any green light so a green object will appear black as the red object as knocked out all the green
-    }
-    else
-    {
-      Material hit_material = world->materials[hit_material_index];
-
-      result += vec_hadamard(attenuation, hit_material.emitted_colour);
-
       break;
     }
+
+    // black dots are if reflected and never hit sky
+    // could also be black say if purely red object attenuates the ray such that it does not reflect any green light so a green object will appear black as the red object as knocked out all the green
   }
 
   locked_add_and_return_previous_value(&queue->bounces_computed, horizontal_add(bounces_computed));
 
-  return result;
+  return horizontal_add(result);
 }
 
 INTERNAL u32 *
@@ -352,21 +357,22 @@ render_tile(WorkQueue *queue)
   u32 one_past_x_max = order->one_past_x_max; 
   u32 one_past_y_max = order->one_past_y_max;
 
+  // TODO(Ryan): Won't this have to been a lane too?
   u32 *random_series = &order->entropy;
 
   // right hand rule here to derive these?
   /* rays around the camera. so, want the camera to have a coordinate system, i.e. set of axis
    */
-  V3 camera_pos = {0, -10, 1};
+  lane_v3 camera_pos = {0, -10, 1};
   // we are looking through -'z', i.e. opposite direction to what our camera z axis is
-  V3 camera_z = vec_noz(camera_pos);
+  lane_v3 camera_z = vec_noz(camera_pos);
   // cross our z with universal z
-  V3 camera_x = vec_noz(vec_cross({0, 0, 1}, camera_z));
-  V3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
+  lane_v3 camera_x = vec_noz(vec_cross({0, 0, 1}, camera_z));
+  lane_v3 camera_y = vec_noz(vec_cross(camera_z, camera_x));
 
-  r32 film_dist = 1.0f;
-  r32 film_w = 1.0f;
-  r32 film_h = 1.0f;
+  lane_r32 film_dist = 1.0f;
+  lane_r32 film_w = 1.0f;
+  lane_r32 film_h = 1.0f;
   // aspect ratio correction
   if (image->width > image->height)
   {
@@ -376,13 +382,12 @@ render_tile(WorkQueue *queue)
   {
     film_w = film_h * ((r32)image->width / (r32)image->height);  
   }
-  r32 half_film_w = 0.5f * film_w;
-  r32 half_film_h = 0.5f * film_h;
-  V3 film_centre = camera_pos - (film_dist * camera_z);
+  lane_r32 half_film_w = 0.5f * film_w;
+  lane_r32 half_film_h = 0.5f * film_h;
+  lane_v3 film_centre = camera_pos - (film_dist * camera_z);
 
-  r32 half_pix_w = 0.5f / image->width;
-  r32 half_pix_h = 0.5f / image->height;
-
+  lane_r32 half_pix_w = 0.5f / image->width;
+  lane_r32 half_pix_h = 0.5f / image->height;
 
   u32 rays_per_pixel = queue->rays_per_pixel;
   for (u32 y = y_min; 
@@ -403,21 +408,21 @@ render_tile(WorkQueue *queue)
       // this is how many loops are now required
       u32 lane_ray_count = (rays_per_pixel / lane_width);
 
-      V3 colour = {};
-      r32 contrib = 1.0f / (r32)lane_ray_count;
+      lane_v3 colour = {};
+      lane_r32 contrib = 1.0f / (r32)rays_per_pixel;
       // move this loop into a function cast_sample_rays()
       for (u32 ray_index = 0;
           ray_index < lane_ray_count;
           ++ray_index)
       {
         // we can get some anti-aliasing here
-        lane_r32 jitter_offx = film_x + random_bilateral(random_series) * half_pix_w;
-        lane_r32 jitter_offy = film_y + random_bilateral(random_series) * half_pix_h;
+        lane_r32 jitter_offx = film_x + random_bilateral_lane(random_series) * half_pix_w;
+        lane_r32 jitter_offy = film_y + random_bilateral_lane(random_series) * half_pix_h;
 
         // need to do half width as from centre
-        lane_V3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
-        lane_V3 ray_origin = camera_pos;
-        lane_V3 ray_direction = vec_noz(film_p - camera_pos);
+        lane_v3 film_p = film_centre + (jitter_offx * half_film_w * camera_x) + (jitter_offy * half_film_h * camera_y);
+        lane_v3 ray_origin = camera_pos;
+        lane_v3 ray_direction = vec_noz(film_p - camera_pos);
 
         // colour is a sum of a series of ray casts
         colour += contrib * cast_ray(queue, world, ray_origin, ray_direction, random_series);

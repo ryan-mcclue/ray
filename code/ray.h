@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: zlib-acknowledgement
 #pragma once
 
+#include "math.h"
+#include "lane.h"
+
 struct ImageU32
 {
   u32 width, height;
