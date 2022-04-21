@@ -125,53 +125,6 @@ get_wall_clock(void)
   return result;
 }
 
-// TODO(Ryan): This isn't as 'random' as rand() (so will introduce artifacts, i.e. see noticeable tile outline), however much more efficient
-// state is seed
-INTERNAL u32
-xor_shift_u32(u32 *random_series)
-{
-	/* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
-	u32 x = *random_series;
-	x ^= x << 13;
-	x ^= x >> 17;
-	x ^= x << 5;
-  *random_series = x;
-
-	return x;
-}
-
-INTERNAL r32
-random_unilateral(u32 *random_series)
-{
-  r32 result = 0.0f;
-
-  // rand() implements mutexes so each thread has to run serially, use rand_r()
-  
-  result = (r32)xor_shift_u32(random_series) / (r32)U32_MAX;
-
-  return result;
-}
-
-INTERNAL r32
-random_bilateral(u32 *random_series)
-{
-  r32 result = 0.0f;
-
-  result = -1.0f + 2.0f * random_unilateral(random_series);
-
-  return result;
-}
-
-INTERNAL lane_r32
-random_bilateral_lane(u32 *random_series)
-{
-  lane_r32 result = 0.0f;
-
-  result = -1.0f + 2.0f * random_unilateral(random_series);
-
-  return result;
-}
-
 // IEEE 754 is in essense a compression algorithm, i.e. compressing all numbers from negative to positive infinity to a finite space of bits
 // Therefore, 0.1 + 0.2 != 0.3 (0.300000004) as it can't represent 0.3
 // epsilon is an allowable error margin for floating point
@@ -203,7 +156,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
 
   lane_u32 bounces_computed = 0;
   // this tells us which lane is active or terminated
-  lane_u32 lane_mask = U32_MAX;
+  lane_u32 lane_mask = 0xffffffff;
 
   u32 max_bounce_count = queue->max_bounce_count;
   for (u32 bounce_count = 0;
@@ -281,6 +234,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
 
       lane_r32 t = t_pos;
       // check if t_neg is a better hit
+      // TODO(Ryan): These need to be either all 1's or all 0's?
       lane_u32 pick_mask = (t_neg > min_hit_distance && t_neg < t_pos);
       conditional_assign(&t, pick_mask, t_neg);
       
@@ -302,7 +256,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
 
     result += vec_hadamard(attenuation, material_emitted_colour);
 
-    lane_mask = lane_mask & (hit_material_index == 0);
+    lane_mask &= (hit_material_index != 0);
 
     lane_r32 cos_attenuation = max(vec_dot(-ray_direction, next_normal), 0);
     attenuation = vec_hadamard(attenuation, cos_attenuation * material_reflected_colour);
@@ -396,14 +350,14 @@ render_tile(WorkQueue *queue)
     u32 *out = get_pixel_pointer(image, x_min, y);
 
     // for camera, z axis is looking from, x and y determine plane aperture 
-    r32 film_y = -1.0f + 2.0f * ((r32)y / (r32)image->height);
+    r32 film_y = (-1.0f + 2.0f * ((r32)y / (r32)image->height)) + half_pix_h;
     for (u32 x = x_min; 
          x < one_past_x_max; 
          ++x)
     {
-      r32 film_x = -1.0f + 2.0f * ((r32)x / (r32)image->width);
+      r32 film_x = (-1.0f + 2.0f * ((r32)x / (r32)image->width)) + half_pix_w;
 
-      u32 lane_width = 4;
+      u32 lane_width = LANE_WIDTH;
       // this is how many loops are now required
       u32 lane_ray_count = (rays_per_pixel / lane_width);
 
@@ -606,7 +560,7 @@ main(int argc, char *argv[])
     WorkQueue work_queue = {};
     work_queue.work_order_count = total_tile_count;
     work_queue.max_bounce_count = 8;
-    work_queue.rays_per_pixel = 128;
+    work_queue.rays_per_pixel = 64;
     work_queue.work_orders = (WorkOrder *)malloc(sizeof(WorkOrder) * work_queue.work_order_count);
     WorkOrder *work_order = work_queue.work_orders;
 
@@ -640,7 +594,7 @@ main(int argc, char *argv[])
         work_order->one_past_y_max = max_y;
 
         // TODO(Ryan): Replace with real entropy!
-        work_order->entropy = tile_x * 12302 + tile_y * 1234;
+        work_order->entropy = 120322 + tile_x * 12302 + tile_y * 1234;
 
         work_order++;
       }
