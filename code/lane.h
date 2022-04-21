@@ -3,7 +3,26 @@
 
 #define LANE_WIDTH 1
 
-#if (LANE_WIDTH == 4)
+#if (LANE_WIDTH == 8)
+
+struct lane_r32
+{
+  __m256 value;
+};
+
+struct lane_u32
+{
+  __m256i value;
+};
+
+struct lane_v3
+{
+  __m256 x;
+  __m256 y;
+  __m256 z;
+};
+
+#elif (LANE_WIDTH == 4)
 
 struct lane_r32
 {
@@ -21,6 +40,62 @@ struct lane_v3
   __m128 y;
   __m128 z;
 };
+
+INTERNAL lane_u32
+operator<<(lane_u32 a, u32 shift)
+{
+  lane_u32 result;
+
+  result.value = _mm_slli_epi32(a.value, shift);
+
+  return result;
+}
+
+INTERNAL lane_u32
+operator>>(lane_u32 a, u32 shift)
+{
+  lane_u32 result;
+
+  result.value = _mm_srli_epi32(a.value, shift);
+
+  return result;
+}
+
+INTERNAL lane_u32 &
+operator^=(lane_u32 &a, lane_u32 b)
+{
+  a.value = _mm_xor_si128(a.value, b.value);
+}
+
+INTERNAL lane_r32
+operator/(lane_r32 a, r32 div)
+{
+  lane_r32 result;
+
+  result.v = _mm_div_ps(a.result, _mm_set1_ps(div));
+
+  return result;
+}
+
+INTERNAL lane_r32
+lane_r32_from_lane_u32(lane_u32 a)
+{
+  lane_r32 result;
+
+  result.value = _mm_cvtepi32_ps(a.value);
+
+  return result;
+}
+
+INTERNAL lane_r32
+lane_r32_from_u32(u32 replicate)
+{
+  lane_r32 result;
+
+  result.value = _mm_set1_ps((r32)replicate);
+
+  return result;
+}
 
 // state is seed
 INTERNAL lane_u32
@@ -148,4 +223,15 @@ random_bilateral_lane(u32 *random_series)
 
 #else
 #error Lane width must bet set to 1!
+#endif
+
+#if (LANE_WIDTH != 1)
+
+INTERNAL lane_u32 &
+operator-=(lane_u32 &a, lane_u32 b)
+{
+  a.value = a.value - b.value;
+  return a;
+}
+
 #endif
