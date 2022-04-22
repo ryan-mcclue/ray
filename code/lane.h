@@ -61,11 +61,26 @@ operator>>(lane_u32 a, u32 shift)
   return result;
 }
 
-INTERNAL lane_u32 &
-operator^=(lane_u32 &a, lane_u32 b)
+INTERNAL lane_u32
+operator^(lane_u32 a, lane_u32 b)
 {
-  a.value = _mm_xor_si128(a.value, b.value);
+  lane_u32 result;
+
+  result = _mm_xor_si128(a.value, b.value);
+
+  return result;
 }
+
+INTERNAL lane_r32
+operator+(lane_r32 a, lane_r32 b)
+{
+  lane_r32 result;
+
+  result = _mm_add_ps(a.value, b.value);
+
+  return result;
+}
+
 
 INTERNAL lane_r32
 operator/(lane_r32 a, r32 div)
@@ -93,6 +108,16 @@ lane_r32_from_u32(u32 replicate)
   lane_r32 result;
 
   result.value = _mm_set1_ps((r32)replicate);
+
+  return result;
+}
+
+INTERNAL lane_r32
+lane_r32_from_r32(r32 replicate)
+{
+  lane_r32 result;
+
+  result.value = _mm_set1_ps(replicate);
 
   return result;
 }
@@ -230,7 +255,16 @@ random_bilateral_lane(u32 *random_series)
 INTERNAL lane_u32 &
 operator-=(lane_u32 &a, lane_u32 b)
 {
-  a.value = a.value - b.value;
+  a = a - b;
+
+  return a;
+}
+
+INTERNAL lane_u32 &
+operator^=(lane_u32 &a, lane_u32 b)
+{
+  a.value = a ^ b;
+
   return a;
 }
 
