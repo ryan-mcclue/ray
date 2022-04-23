@@ -1,45 +1,68 @@
 // SPDX-License-Identifier: zlib-acknowledgement
 #pragma once
 
+/*
+ *   struct r32_lane
+ *   {
+ *     real_lane value;
+ *   }
+ *   struct u32_lane
+ *   {
+ *     integer_lane value;
+ *   }
+ * }
+ *
+ * struct lane_v3
+ * {
+ *   r32_lane x;
+ *   r32_lane y;
+ *   r32_lane z;
+ * }
+ * 
+ */
+
 #define LANE_WIDTH 1
 
 #if (LANE_WIDTH == 8)
 
-struct lane_r32
-{
-  __m256 value;
-};
-
-struct lane_u32
-{
-  __m256i value;
-};
-
-struct lane_v3
-{
-  __m256 x;
-  __m256 y;
-  __m256 z;
-};
-
 #elif (LANE_WIDTH == 4)
 
-struct lane_r32
-{
-  __m128 value;
-};
+typedef real_lane __m128;
+typedef integer_lane __m128i;
 
-struct lane_u32
-{
-  __m128i value;
-};
+#define LANE_R32_ADD(a, b) _mm_add_ps(a.value, b.value)
+#define LANE_R32_MIN(a, b) _mm_min_ps(a.value, b.value)
+#define LANE_R32_MAX(a, b) _mm_max_ps(a.value, b.value)
 
-struct lane_v3
+INTERNAL lane_u32
+and_not(lane_u32 a, lane_u32 b)
 {
-  __m128 x;
-  __m128 y;
-  __m128 z;
-};
+  lane_u32 result = {};
+
+  result = _mm_andnot_si128(a.value, b.value);
+
+  return result;
+}
+
+INTERNAL lane_r32
+operator-(lane_r32 a)
+{
+  lane_r32 result = {};
+
+  result = lane_r32_from_r32(0) - a;
+
+  return result;
+}
+
+INTERNAL lane_u32
+operator<(lane_r32 a, lane_r32 b)
+{
+  lane_u32 result = {};
+
+  result = _mm_castps_si128(_mm_cmplt_ps(a.value, b.value));
+
+  return result;
+}
 
 INTERNAL lane_u32
 operator<<(lane_u32 a, u32 shift)
@@ -250,7 +273,26 @@ random_bilateral_lane(u32 *random_series)
 #error Lane width must bet set to 1!
 #endif
 
+struct lane_v3
+{
+  lane_r32 x;
+  lane_r32 y;
+  lane_r32 z;
+};
+
 #if (LANE_WIDTH != 1)
+
+INTERNAL lane_v3
+lane_v3_from_v3(V3 replicate)
+{
+  lane_v3 result = {};
+
+  result.x = lane_r32_from_r32(replicate.x);
+  result.y = lane_r32_from_r32(replicate.y);
+  result.z = lane_r32_from_r32(replicate.z);
+
+  return result;
+}
 
 INTERNAL lane_u32 &
 operator-=(lane_u32 &a, lane_u32 b)
@@ -266,6 +308,23 @@ operator^=(lane_u32 &a, lane_u32 b)
   a.value = a ^ b;
 
   return a;
+}
+
+INTERNAL void
+conditional_assign(lane_u32 *dest, lane_u32 mask, lane_u32 source)
+{
+  // IMPORTANT(Ryan): This works as masks obtained from simd comparison will be all 1s or all 0s
+  *dest = and_not(mask, *dest) | (mask & source);
+}
+
+INTERNAL lane_r32
+clamp01(lane_r32 a)
+{
+  lane_r32 result = {};
+
+  result.value = LANE_R32_MIN(LANE_R32_MAX(a.value, lane_r32_from_r32(0.0f)), 1.0f);
+
+  return result;
 }
 
 #endif

@@ -154,7 +154,7 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
   // NOTE(Ryan): Ad-hoc value
   lane_r32 tolerance = 0.0001f;
 
-  lane_u32 bounces_computed = 0;
+  lane_u32 bounces_computed = lane_u32_from_u32(0);
   // this tells us which lane is active or terminated
   lane_u32 lane_mask = 0xffffffff;
 
