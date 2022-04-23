@@ -559,8 +559,8 @@ main(int argc, char *argv[])
     u32 total_tile_count = tile_count_x * tile_count_y;
 
     // from k/tile we can say if it will fit into L1 cache
-    printf("Configuration: %d cores with %d tiles, %dx%d (%ldk/tile) tiles\n", 
-        core_count, total_tile_count, tile_width, tile_height, tile_width * tile_height * sizeof(u32) / 1024);
+    printf("Configuration: %d cores with %d tiles, %dx%d (%ldk/tile) tiles, %d wide lanes\n", 
+        core_count, total_tile_count, tile_width, tile_height, tile_width * tile_height * sizeof(u32) / 1024, LANE_WIDTH);
 
     WorkQueue work_queue = {};
     work_queue.work_order_count = total_tile_count;

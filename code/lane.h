@@ -44,6 +44,25 @@ and_not(lane_u32 a, lane_u32 b)
   return result;
 }
 
+INTERNAL b32
+mask_is_zeroed(lane_u32 a)
+{
+  int mask_value = _mm_movemask_epi8(a.value);
+
+  return (mask_value == 0);
+}
+
+// SSSE3 has instruction for this
+INTERNAL r64
+horizontal_add(lane_r32 a)
+{
+  r32 *val = (r32 *)&a.value;
+
+  r32 result = (r64)val[0] + (r64)val[1] + (r64)val[2] + (r64)val[3];
+
+  return result;
+}
+
 INTERNAL lane_v3
 lane_v3(lane_r32 x, lane_r32 y, lane_r32 z)
 {
@@ -52,6 +71,21 @@ lane_v3(lane_r32 x, lane_r32 y, lane_r32 z)
   result.x = x;
   result.y = y;
   result.z = z;
+
+  return result;
+}
+
+// set/gather functions
+
+// extract functions
+INTERNAL V3
+extract0(lane_v3 a)
+{
+  V3 result = {};
+
+  result.x = (r32 *)&a.x[0];
+  result.y = (r32 *)&a.y[0];
+  result.z = (r32 *)&a.z[0];
 
   return result;
 }
