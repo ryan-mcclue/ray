@@ -248,9 +248,14 @@ cast_ray(WorkQueue *queue, World *world, V3 ray_origin, V3 ray_direction, u32 *r
     }
 
     // TODO(Ryan): How do we load these?
+    // a strided load is required
+    // for SSE, there is no gather instruction (in AVX and NEON there is) 
     Material hit_material = world->materials[hit_material_index];
 
-    lane_v3 material_emitted_colour = hit_material.emitted_colour;
+    // TODO(Ryan): Last param is the member?
+    lane_v3 material_emitted_colour = \
+      lane_mask & strided_load_v3(world->materials, hit_material_index, emitted_colour);
+
     lane_v3 material_reflected_colour = hit_material.reflected_colour;
     lane_r32 material_scatter = hit_material.scatter;
 

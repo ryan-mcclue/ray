@@ -44,6 +44,18 @@ and_not(lane_u32 a, lane_u32 b)
   return result;
 }
 
+INTERNAL lane_v3
+lane_v3(lane_r32 x, lane_r32 y, lane_r32 z)
+{
+  lane_v3 result = {};
+
+  result.x = x;
+  result.y = y;
+  result.z = z;
+
+  return result;
+}
+
 INTERNAL lane_r32
 operator-(lane_r32 a)
 {
