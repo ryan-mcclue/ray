@@ -246,6 +246,17 @@ random_bilateral_lane(u32 *random_series)
   return result;
 }
 
+// TODO(Ryan): Do newer SIMD implement a not?
+INTERNAL lane_u32
+operator!=(lane_u32 a, lane_u32 b)
+{
+  lane_u32 result = {};
+
+  result.value = _mm_xor_si128(_mm_cmpeq_si128(a.value, b.value), _mm_set1_epi32(0xFFFFFFFF));
+
+  return result;
+}
+
 #elif (LANE_WIDTH == 1)
 
 typedef r32 lane_r32;
@@ -263,7 +274,9 @@ conditional_assign(lane_u32 *dest, lane_u32 mask, lane_u32 source)
 INTERNAL void
 conditional_assign(lane_r32 *dest, lane_u32 mask, lane_r32 source)
 {
-  // TODO(Ryan): How does this reinterpretation not break things?
+  // only required for single lane
+  mask = (mask ? 0xffffffff : 0);
+
   u32 result = (~mask & *(u32 *)dest) | (mask & *(u32 *)&source);
   *dest = *(r32 *)&result;
 }
